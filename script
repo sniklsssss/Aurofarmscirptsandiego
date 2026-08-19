@@ -1,6 +1,5 @@
 -- ============================================================
---  КРУТОЙ ФАРМ v10 (с логгером и несколькими способами нажатия E)
---  Перемещение по точкам, анти-AFK, логирование событий
+--  КРУТОЙ ФАРМ v11 (без мыши, только клавиатура + анти-AFK)
 -- ============================================================
 
 local Players = game:GetService("Players")
@@ -8,7 +7,6 @@ local Player = Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
 local VirtualInput = game:GetService("VirtualInputManager")
 local UserInputService = game:GetService("UserInputService")
-local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local FLY_SPEED = 60
@@ -51,10 +49,10 @@ local currentTween = nil
 local afkThread = nil
 
 -- ------------------------------------------------------------
---  Логгер всех RemoteEvent и RemoteFunction
+--  Логгер RemoteEvent (для выяснения правильного события)
 -- ------------------------------------------------------------
 local function startLogger()
-    print("🔍 Логгер запущен. Нажмите E вручную, чтобы увидеть события.")
+    print("🔍 Логгер запущен. Подойдите к объекту, нажмите E вручную, смотрите консоль (F9).")
     local function hook(obj)
         if obj:IsA("RemoteEvent") then
             local old = obj.FireServer
@@ -70,39 +68,33 @@ local function startLogger()
             end
         end
     end
-    -- Обрабатываем все объекты в ReplicatedStorage и других сервисах
     for _, service in ipairs({ReplicatedStorage, game:GetService("Workspace"), game:GetService("Players")}) do
         for _, child in ipairs(service:GetDescendants()) do
             hook(child)
         end
     end
-    -- Также перехватываем нажатие E вручную
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
         if input.KeyCode == Enum.KeyCode.E then
-            print("🔑 Вы нажали E вручную (игра не обработала)")
+            print("🔑 Вы нажали E вручную")
         end
     end)
 end
-
--- Запускаем логгер сразу
 startLogger()
 
 -- ------------------------------------------------------------
---  Нажатие E (несколько способов)
+--  Нажатие E (три способа)
 -- ------------------------------------------------------------
 local function pressE(holdDuration)
     local success = false
-    -- Способ 1: VirtualInputManager (стандартный)
     pcall(function()
         VirtualInput:SendKeyEvent(true, Enum.KeyCode.E, false, game)
         task.wait(holdDuration)
         VirtualInput:SendKeyEvent(false, Enum.KeyCode.E, false, game)
         success = true
     end)
-    if success then print("✅ Нажатие E через VirtualInputManager") return true end
+    if success then print("✅ E через VirtualInputManager") return true end
 
-    -- Способ 2: syn.input (для Synapse X)
     if syn and syn.input then
         pcall(function()
             syn.input(true, Enum.KeyCode.E, game)
@@ -110,10 +102,9 @@ local function pressE(holdDuration)
             syn.input(false, Enum.KeyCode.E, game)
             success = true
         end)
-        if success then print("✅ Нажатие E через syn.input") return true end
+        if success then print("✅ E через syn.input") return true end
     end
 
-    -- Способ 3: keypress (для Krnl)
     if keypress then
         pcall(function()
             keypress(Enum.KeyCode.E)
@@ -121,7 +112,7 @@ local function pressE(holdDuration)
             keyrelease(Enum.KeyCode.E)
             success = true
         end)
-        if success then print("✅ Нажатие E через keypress") return true end
+        if success then print("✅ E через keypress") return true end
     end
 
     print("❌ Все способы нажатия E не сработали")
@@ -170,7 +161,6 @@ local function flyToPoint(targetPos, speed)
 
     local currentCF = hrp.CFrame
     local targetCF = CFrame.new(targetPos) * CFrame.Angles(0, currentCF.Y, 0)
-
     local distance = (targetPos - hrp.Position).Magnitude
     local duration = distance / speed
     if duration < 0.1 then duration = 0.1 end
@@ -195,24 +185,25 @@ local function flyToPoint(targetPos, speed)
 end
 
 -- ------------------------------------------------------------
---  Анти-AFK (движение мыши через VirtualInputManager)
+--  Анти-AFK (без мыши, только микродвижение персонажа)
 -- ------------------------------------------------------------
 local function startAfk()
     if afkThread then return end
     isAfkEnabled = true
     afkThread = task.spawn(function()
         while isAfkEnabled do
-            task.wait(10)
+            task.wait(15)
             if not isAfkEnabled then break end
-            -- Просто двигаем мышку на 1 пиксель вправо и обратно (если поддерживается)
-            pcall(function()
-                local screen = GuiService:GetScreenResolution()
-                local x, y = screen.X/2, screen.Y/2
-                VirtualInput:SendMouseMoveEvent(x+1, y, Enum.UserInputType.MouseMovement)
-                task.wait(0.05)
-                VirtualInput:SendMouseMoveEvent(x, y, Enum.UserInputType.MouseMovement)
-            end)
-            -- Если SendMouseMoveEvent не работает, пробуем через VirtualInputManager:SendKeyEvent (движение не поможет, но хоть что-то)
+            local char = Player.Character
+            if char then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local pos = hrp.Position
+                    hrp.CFrame = CFrame.new(pos + Vector3.new(0.5, 0, 0))
+                    task.wait(0.05)
+                    hrp.CFrame = CFrame.new(pos)
+                end
+            end
         end
     end)
 end
@@ -385,5 +376,5 @@ mainFrame.InputEnded:Connect(function(input)
     end
 end)
 
-print("✅ Крутой фарм v10 загружен. Нажмите Фарм для старта.")
+print("✅ Крутой фарм v11 загружен. Нажмите Фарм для старта.")
 print("🔍 Логгер активен. Подойдите к объекту, нажмите E вручную и посмотрите консоль (F9).")
