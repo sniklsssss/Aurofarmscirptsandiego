@@ -1,6 +1,6 @@
 -- ============================================================
---  КРУТОЙ ФАРМ v5.2 (МГНОВЕННОЕ ПЕРЕМЕЩЕНИЕ)
---  Движение через TweenService с SPEED = 5000
+--  КРУТОЙ ФАРМ v5.2 
+--  Движение через TweenService с SPEED = 200
 --  Анти-AFK + эмуляция E
 -- ============================================================
 
@@ -10,7 +10,7 @@ local TweenService = game:GetService("TweenService")
 local VirtualInput = game:GetService("VirtualInputManager")
 
 local KEY_E = 69
-local SPEED = 5000  -- ОГРОМНАЯ СКОРОСТЬ (почти телепорт)
+local SPEED = 200  -- 
 
 -- Маршрут
 local route = {
