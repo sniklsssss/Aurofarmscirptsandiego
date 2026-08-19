@@ -1,17 +1,19 @@
 -- ============================================================
---  КРУТОЙ ФАРМ v9 (работает через VirtualInputManager)
---  Клик в центр экрана + анти-AFK + перемещение
+--  КРУТОЙ ФАРМ v10 (с логгером и несколькими способами нажатия E)
+--  Перемещение по точкам, анти-AFK, логирование событий
 -- ============================================================
 
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
 local VirtualInput = game:GetService("VirtualInputManager")
+local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local FLY_SPEED = 60
 
--- Маршрут (те же точки, что и раньше)
+-- Маршрут
 local route = {
     { pos = Vector3.new(6887.71875, 17.218589782714844, 26.872846603393555) },
     { pos = Vector3.new(6809.7509765625, 17.416330337524414, 22.777130126953125),
@@ -49,18 +51,81 @@ local currentTween = nil
 local afkThread = nil
 
 -- ------------------------------------------------------------
---  Клик в центр экрана с удержанием
+--  Логгер всех RemoteEvent и RemoteFunction
 -- ------------------------------------------------------------
-local function clickCenter(holdDuration)
-    local screenSize = GuiService:GetScreenResolution()
-    local centerX, centerY = screenSize.X / 2, screenSize.Y / 2
-    -- Перемещаем курсор в центр
-    VirtualInput:SetMousePosition(centerX, centerY)
-    -- Нажимаем левую кнопку
-    VirtualInput:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, true, centerX, centerY)
-    task.wait(holdDuration)
-    -- Отпускаем
-    VirtualInput:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, false, centerX, centerY)
+local function startLogger()
+    print("🔍 Логгер запущен. Нажмите E вручную, чтобы увидеть события.")
+    local function hook(obj)
+        if obj:IsA("RemoteEvent") then
+            local old = obj.FireServer
+            obj.FireServer = function(self, ...)
+                print("🔥 RemoteEvent:", obj.Name, "Аргументы:", ...)
+                return old(self, ...)
+            end
+        elseif obj:IsA("RemoteFunction") then
+            local old = obj.InvokeServer
+            obj.InvokeServer = function(self, ...)
+                print("⚡ RemoteFunction:", obj.Name, "Аргументы:", ...)
+                return old(self, ...)
+            end
+        end
+    end
+    -- Обрабатываем все объекты в ReplicatedStorage и других сервисах
+    for _, service in ipairs({ReplicatedStorage, game:GetService("Workspace"), game:GetService("Players")}) do
+        for _, child in ipairs(service:GetDescendants()) do
+            hook(child)
+        end
+    end
+    -- Также перехватываем нажатие E вручную
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.KeyCode == Enum.KeyCode.E then
+            print("🔑 Вы нажали E вручную (игра не обработала)")
+        end
+    end)
+end
+
+-- Запускаем логгер сразу
+startLogger()
+
+-- ------------------------------------------------------------
+--  Нажатие E (несколько способов)
+-- ------------------------------------------------------------
+local function pressE(holdDuration)
+    local success = false
+    -- Способ 1: VirtualInputManager (стандартный)
+    pcall(function()
+        VirtualInput:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+        task.wait(holdDuration)
+        VirtualInput:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        success = true
+    end)
+    if success then print("✅ Нажатие E через VirtualInputManager") return true end
+
+    -- Способ 2: syn.input (для Synapse X)
+    if syn and syn.input then
+        pcall(function()
+            syn.input(true, Enum.KeyCode.E, game)
+            task.wait(holdDuration)
+            syn.input(false, Enum.KeyCode.E, game)
+            success = true
+        end)
+        if success then print("✅ Нажатие E через syn.input") return true end
+    end
+
+    -- Способ 3: keypress (для Krnl)
+    if keypress then
+        pcall(function()
+            keypress(Enum.KeyCode.E)
+            task.wait(holdDuration)
+            keyrelease(Enum.KeyCode.E)
+            success = true
+        end)
+        if success then print("✅ Нажатие E через keypress") return true end
+    end
+
+    print("❌ Все способы нажатия E не сработали")
+    return false
 end
 
 -- ------------------------------------------------------------
@@ -74,7 +139,7 @@ local function performAction(action)
 
     for i = 1, repeats do
         if not isFarming or stopRequested then break end
-        clickCenter(duration)
+        pressE(duration)
         if not isFarming or stopRequested then break end
         if i < repeats then
             task.wait(0.2)
@@ -130,7 +195,7 @@ local function flyToPoint(targetPos, speed)
 end
 
 -- ------------------------------------------------------------
---  Анти-AFK (движение мыши каждые 10 сек)
+--  Анти-AFK (движение мыши через VirtualInputManager)
 -- ------------------------------------------------------------
 local function startAfk()
     if afkThread then return end
@@ -139,11 +204,15 @@ local function startAfk()
         while isAfkEnabled do
             task.wait(10)
             if not isAfkEnabled then break end
-            local screenSize = GuiService:GetScreenResolution()
-            local x, y = screenSize.X / 2, screenSize.Y / 2
-            VirtualInput:SetMousePosition(x + 1, y)
-            task.wait(0.1)
-            VirtualInput:SetMousePosition(x, y)
+            -- Просто двигаем мышку на 1 пиксель вправо и обратно (если поддерживается)
+            pcall(function()
+                local screen = GuiService:GetScreenResolution()
+                local x, y = screen.X/2, screen.Y/2
+                VirtualInput:SendMouseMoveEvent(x+1, y, Enum.UserInputType.MouseMovement)
+                task.wait(0.05)
+                VirtualInput:SendMouseMoveEvent(x, y, Enum.UserInputType.MouseMovement)
+            end)
+            -- Если SendMouseMoveEvent не работает, пробуем через VirtualInputManager:SendKeyEvent (движение не поможет, но хоть что-то)
         end
     end)
 end
@@ -205,7 +274,7 @@ local function stopFarm()
 end
 
 -- ------------------------------------------------------------
---  GUI (две кнопки: Фарм и Анти-AFK)
+--  GUI
 -- ------------------------------------------------------------
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "CoolFarmGui"
@@ -316,4 +385,5 @@ mainFrame.InputEnded:Connect(function(input)
     end
 end)
 
-print("✅ Крутой фарм v9 загружен. Используйте кнопки.")
+print("✅ Крутой фарм v10 загружен. Нажмите Фарм для старта.")
+print("🔍 Логгер активен. Подойдите к объекту, нажмите E вручную и посмотрите консоль (F9).")
