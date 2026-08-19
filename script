@@ -1,19 +1,16 @@
 -- ============================================================
---  КРУТОЙ ФАРМ v5 (ЛЕТАЮЩЕЕ ПЕРЕМЕЩЕНИЕ, НЕ ПЕРЕВОРАЧИВАЕТСЯ)
---  Движение через TweenService, фиксация высоты и вращения
---  Эмуляция E через VirtualInputManager + поиск ProximityPrompt
+--  КРУТОЙ ФАРМ v6 (Прямое взаимодействие с ProximityPrompt)
+--  Летающее перемещение, без переворотов, ускоренное
 -- ============================================================
 
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
-local VirtualInput = game:GetService("VirtualInputManager")
-local RunService = game:GetService("RunService")
 
--- Код клавиши E
-local KEY_E = 69
+local FLY_SPEED = 60          -- студий/сек
+local HOLD_DURATION = 2       -- секунды удержания
 
--- Маршрут (как в прошлый раз)
+-- Маршрут
 local route = {
     { pos = Vector3.new(6887.71875, 17.218589782714844, 26.872846603393555) },
     { pos = Vector3.new(6809.7509765625, 17.416330337524414, 22.777130126953125),
@@ -49,9 +46,9 @@ local stopRequested = false
 local currentTween = nil
 
 -- ------------------------------------------------------------
---  Эмуляция взаимодействия (поиск ProximityPrompt и нажатие E)
+--  Взаимодействие через ProximityPrompt (без клавиатуры)
 -- ------------------------------------------------------------
-local function activateInteraction(holdDuration)
+local function interactAtPosition(holdDuration)
     local char = Player.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -59,61 +56,60 @@ local function activateInteraction(holdDuration)
     local pos = hrp.Position
 
     -- Ищем ProximityPrompt в радиусе 10 студий
-    local prompts = {}
+    local found = false
     for _, prompt in ipairs(workspace:GetDescendants()) do
         if prompt:IsA("ProximityPrompt") then
-            local promptPos = prompt.Parent and prompt.Parent:FindFirstChild("Position") and prompt.Parent.Position
-            if promptPos then
-                local dist = (promptPos - pos).Magnitude
-                if dist < 10 then
-                    table.insert(prompts, prompt)
+            local parent = prompt.Parent
+            if parent then
+                local promptPos = parent:FindFirstChild("Position") and parent.Position
+                if promptPos then
+                    local dist = (promptPos - pos).Magnitude
+                    if dist < 10 then
+                        pcall(function()
+                            prompt:InputHoldBegin()
+                            task.wait(holdDuration)
+                            prompt:InputHoldEnd()
+                        end)
+                        found = true
+                    end
                 end
             end
         end
     end
 
-    if #prompts > 0 then
-        -- Нажимаем E несколько раз (удерживаем)
-        for i = 1, math.floor(holdDuration / 0.1) do
-            if not isRunning or stopRequested then break end
-            VirtualInput:SendKeyEvent(true, KEY_E, false, game)
-            task.wait(0.1)
-            VirtualInput:SendKeyEvent(false, KEY_E, false, game)
-            task.wait(0.05)
-        end
-        return true
-    end
+    if found then return true end
 
-    -- Если нет ProximityPrompt, ищем ClickDetector
-    local detectors = {}
+    -- Если нет промптов, ищем ClickDetector
     for _, det in ipairs(workspace:GetDescendants()) do
         if det:IsA("ClickDetector") then
-            local detPos = det.Parent and det.Parent:FindFirstChild("Position") and det.Parent.Position
-            if detPos then
-                local dist = (detPos - pos).Magnitude
-                if dist < 10 then
-                    table.insert(detectors, det)
+            local parent = det.Parent
+            if parent then
+                local detPos = parent:FindFirstChild("Position") and parent.Position
+                if detPos then
+                    local dist = (detPos - pos).Magnitude
+                    if dist < 10 then
+                        pcall(function()
+                            det:FireClick(Player.Mouse)
+                        end)
+                        found = true
+                    end
                 end
             end
         end
     end
 
-    if #detectors > 0 then
-        for _, d in ipairs(detectors) do
-            pcall(function()
-                d:FireClick(Player.Mouse)
-            end)
-        end
+    if found then
+        task.wait(holdDuration) -- имитация удержания
         return true
     end
 
-    -- Если ничего не нашли, просто ждём (имитация)
+    -- Если ничего не нашли, просто ждём
     task.wait(holdDuration)
     return false
 end
 
 -- ------------------------------------------------------------
---  Плавное перемещение (летающее, с фиксацией высоты и вращения)
+--  Плавное перемещение (летающее, без переворотов)
 -- ------------------------------------------------------------
 local function flyToPoint(targetPos, speed)
     local char = Player.Character
@@ -121,7 +117,6 @@ local function flyToPoint(targetPos, speed)
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
 
-    -- Отключаем физику для плавного полёта (но не PlatformStand)
     local hum = char:FindFirstChild("Humanoid")
     if hum then
         hum.PlatformStand = false
@@ -129,19 +124,14 @@ local function flyToPoint(targetPos, speed)
         hum:SetStateEnabled(Enum.HumanoidStateType.Running, false)
     end
 
-    -- Фиксируем вращение (сохраняем текущий угол, только смещаем позицию)
     local currentCF = hrp.CFrame
-    local targetCF = CFrame.new(targetPos) * CFrame.Angles(0, currentCF.Y, 0) -- сохраняем поворот по Y
+    local targetCF = CFrame.new(targetPos) * CFrame.Angles(0, currentCF.Y, 0)
 
     local distance = (targetPos - hrp.Position).Magnitude
     local duration = distance / speed
     if duration < 0.1 then duration = 0.1 end
 
-    local tweenInfo = TweenInfo.new(
-        duration,
-        Enum.EasingStyle.Linear,
-        Enum.EasingDirection.Out
-    )
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
     local goal = { CFrame = targetCF }
     currentTween = TweenService:Create(hrp, tweenInfo, goal)
 
@@ -162,10 +152,10 @@ local function flyToPoint(targetPos, speed)
     end
 
     return true
-end
+}
 
 -- ------------------------------------------------------------
---  Выполнение действия с повторами и паузами
+--  Выполнение действия с повторами
 -- ------------------------------------------------------------
 local function performHold(action)
     if not action then return end
@@ -175,7 +165,7 @@ local function performHold(action)
 
     for i = 1, repeats do
         if not isRunning or stopRequested then break end
-        activateInteraction(duration)
+        interactAtPosition(duration)
         if not isRunning or stopRequested then break end
         if i < repeats then
             task.wait(0.2)
@@ -192,11 +182,10 @@ end
 --  Основной цикл
 -- ------------------------------------------------------------
 local function farmCycle()
-    local speed = 40 -- скорость полёта (студий в секунду)
     while isRunning and not stopRequested do
-        for i, step in ipairs(route) do
+        for _, step in ipairs(route) do
             if not isRunning or stopRequested then break end
-            local ok = flyToPoint(step.pos, speed)
+            local ok = flyToPoint(step.pos, FLY_SPEED)
             if not ok then break end
             if step.holdAction and isRunning and not stopRequested then
                 performHold(step.holdAction)
@@ -227,7 +216,6 @@ local function stopFarm()
         currentTween:Cancel()
         currentTween = nil
     end
-    -- Восстанавливаем управление
     local char = Player.Character
     if char then
         local hum = char:FindFirstChild("Humanoid")
@@ -239,7 +227,7 @@ local function stopFarm()
 end
 
 -- ------------------------------------------------------------
---  GUI (без изменений)
+--  GUI
 -- ------------------------------------------------------------
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "CoolFarmGui"
@@ -322,4 +310,4 @@ mainFrame.InputEnded:Connect(function(input)
     end
 end)
 
-print("✅ Крутой фарм v5 загружен. Нажмите Фарм для старта.")
+print("✅ Крутой фарм v6 загружен. Нажмите Фарм для старта.")
