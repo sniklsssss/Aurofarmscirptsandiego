@@ -1,41 +1,114 @@
 -- ============================================================
---  КРУТОЙ ФАРМ v7 (клик по экрану вместо E)
+--  КРУТОЙ ФАРМ v8 (клик по центру экрана + анти-AFK)
+--  Летает по точкам, кликает в центр экрана, не дает кикнуть
 -- ============================================================
 
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local VirtualInput = game:GetService("VirtualInputManager")
 
-local FLY_SPEED = 70
+local FLY_SPEED = 60
 local HOLD_DURATION = 2
 
--- Маршрут (оставляем тот же)
+-- Маршрут (те же точки)
 local route = {
     { pos = Vector3.new(6887.71875, 17.218589782714844, 26.872846603393555) },
     { pos = Vector3.new(6809.7509765625, 17.416330337524414, 22.777130126953125),
       holdAction = { duration = 2, repeats = 5, totalPause = 15 } },
-    -- ... (остальные точки такие же, сокращаю для краткости)
+    { pos = Vector3.new(6877.3447265625, 17.218589782714844, 21.608007431030273) },
+    { pos = Vector3.new(6878.5869140625, 17.218589782714844, 98.57868194580078) },
+    { pos = Vector3.new(2939.4375, 17.218589782714844, 107.67415618896484) },
+    { pos = Vector3.new(2841.397216796875, 17.218589782714844, 95.64437103271484) },
+    { pos = Vector3.new(2757.085205078125, 17.218589782714844, 94.65489959716797) },
+    { pos = Vector3.new(2710.453125, 17.218589782714844, 113.64794921875) },
+    { pos = Vector3.new(2693.919189453125, 17.218589782714844, 158.97024536132812) },
+    { pos = Vector3.new(181.60000610351562, 17.21858787536621, 143.19992065429688) },
+    { pos = Vector3.new(180.6009979248047, 17.218589782714844, -42.60643768310547) },
+    { pos = Vector3.new(207.53811645507812, 17.23929786682129, -44.415321350097656),
+      holdAction = { duration = 2, repeats = 1, totalPause = 5 } },
+    { pos = Vector3.new(175.62156677246094, 17.218589782714844, -44.555362701416016) },
+    { pos = Vector3.new(172.04054260253906, 17.21858787536621, 142.3052978515625) },
+    { pos = Vector3.new(839.2763671875, 17.218589782714844, 143.19053649902344) },
+    { pos = Vector3.new(2160.346923828125, 17.218589782714844, 142.41714477539062) },
+    { pos = Vector3.new(2693.146240234375, 17.218591690063477, 157.01223754882812) },
+    { pos = Vector3.new(2692.99267578125, 17.218589782714844, 129.21585083007812) },
+    { pos = Vector3.new(2865.84765625, 17.218589782714844, 110.69588470458984) },
+    { pos = Vector3.new(6894.1796875, 17.21858787536621, 124.61898040771484) },
+    { pos = Vector3.new(6879.5537109375, 17.416536331176758, -42.14048767089844) },
+    { pos = Vector3.new(6809.32080078125, 17.442039489746094, -42.392459869384766),
+      holdAction = { duration = 2, repeats = 1, totalPause = 5 } },
     { pos = Vector3.new(6850.42822265625, 17.416536331176758, -41.9425048828125) },
 }
 
-local isRunning = false
+-- Состояние
+local isFarming = false
+local isAfkEnabled = false
 local stopRequested = false
 local currentTween = nil
+local afkThread = nil
 
--- Эмуляция клика и удержания в центре экрана
-local function clickAndHoldCenter(holdDuration)
+-- ------------------------------------------------------------
+--  Функция клика в центр экрана (с удержанием)
+-- ------------------------------------------------------------
+local function clickCenter(holdDuration)
     local mouse = Player:GetMouse()
-    if not mouse then return end
+    if not mouse then
+        print("⚠️ Мышь не найдена")
+        return
+    end
     local screenSize = game:GetService("GuiService"):GetScreenResolution()
     local centerX, centerY = screenSize.X / 2, screenSize.Y / 2
     mouse.Move(Vector2.new(centerX, centerY))
     mouse.Button1Down()
     task.wait(holdDuration)
     mouse.Button1Up()
+    print("✅ Клик в центр выполнен")
 end
 
--- Летающее перемещение (как в прошлый раз)
+-- ------------------------------------------------------------
+--  Альтернативное нажатие E через VirtualInput (если клик не работает)
+-- ------------------------------------------------------------
+local function pressE(holdDuration)
+    pcall(function()
+        VirtualInput:SendKeyEvent(true, 69, false, game)
+        task.wait(holdDuration)
+        VirtualInput:SendKeyEvent(false, 69, false, game)
+    end)
+end
+
+-- ------------------------------------------------------------
+--  Действие при прибытии (комбинируем оба способа)
+-- ------------------------------------------------------------
+local function performAction(action)
+    if not action then return end
+    local duration = action.duration or 2
+    local repeats = action.repeats or 1
+    local totalPause = action.totalPause or (duration * repeats)
+
+    for i = 1, repeats do
+        if not isFarming or stopRequested then break end
+        -- Пробуем клик в центр
+        clickCenter(duration)
+        -- Дополнительно пробуем нажать E (на всякий случай)
+        pressE(duration)
+        if not isFarming or stopRequested then break end
+        if i < repeats then
+            task.wait(0.2)
+        end
+    end
+
+    local remaining = totalPause - (duration * repeats)
+    if remaining > 0 and isFarming and not stopRequested then
+        task.wait(remaining)
+    end
+end
+
+-- ------------------------------------------------------------
+--  Перемещение (летающее, без переворотов)
+-- ------------------------------------------------------------
 local function flyToPoint(targetPos, speed)
     local char = Player.Character
     if not char then return false end
@@ -51,6 +124,7 @@ local function flyToPoint(targetPos, speed)
 
     local currentCF = hrp.CFrame
     local targetCF = CFrame.new(targetPos) * CFrame.Angles(0, currentCF.Y, 0)
+
     local distance = (targetPos - hrp.Position).Magnitude
     local duration = distance / speed
     if duration < 0.1 then duration = 0.1 end
@@ -63,7 +137,7 @@ local function flyToPoint(targetPos, speed)
     currentTween.Completed:Connect(function() completed = true end)
     currentTween:Play()
 
-    while not completed and isRunning and not stopRequested do
+    while not completed and isFarming and not stopRequested do
         task.wait(0.05)
     end
 
@@ -74,57 +148,69 @@ local function flyToPoint(targetPos, speed)
     return true
 end
 
--- Выполнение действия (клик в центр)
-local function performHold(action)
-    if not action then return end
-    local duration = action.duration or 2
-    local repeats = action.repeats or 1
-    local totalPause = action.totalPause or (duration * repeats)
-
-    for i = 1, repeats do
-        if not isRunning or stopRequested then break end
-        clickAndHoldCenter(duration)
-        if not isRunning or stopRequested then break end
-        if i < repeats then
-            task.wait(0.2)
+-- ------------------------------------------------------------
+--  Анти-AFK (движение мыши каждые 10 секунд)
+-- ------------------------------------------------------------
+local function startAfk()
+    if afkThread then return end
+    isAfkEnabled = true
+    afkThread = task.spawn(function()
+        while isAfkEnabled do
+            task.wait(10)
+            if not isAfkEnabled then break end
+            local mouse = Player:GetMouse()
+            if mouse then
+                local pos = mouse.X
+                mouse.Move(Vector2.new(pos + 1, mouse.Y))
+                task.wait(0.1)
+                mouse.Move(Vector2.new(pos, mouse.Y))
+                print("🔄 Анти-AFK: движение мыши")
+            end
         end
-    end
+    end)
+end
 
-    local remaining = totalPause - (duration * repeats)
-    if remaining > 0 and isRunning and not stopRequested then
-        task.wait(remaining)
+local function stopAfk()
+    isAfkEnabled = false
+    if afkThread then
+        task.cancel(afkThread)
+        afkThread = nil
     end
 end
 
--- Основной цикл
+-- ------------------------------------------------------------
+--  Основной цикл фарма
+-- ------------------------------------------------------------
 local function farmCycle()
-    while isRunning and not stopRequested do
+    while isFarming and not stopRequested do
         for _, step in ipairs(route) do
-            if not isRunning or stopRequested then break end
+            if not isFarming or stopRequested then break end
             local ok = flyToPoint(step.pos, FLY_SPEED)
             if not ok then break end
-            if step.holdAction and isRunning and not stopRequested then
-                performHold(step.holdAction)
+            if step.holdAction and isFarming and not stopRequested then
+                performAction(step.holdAction)
             end
             task.wait(0.2)
         end
-        if isRunning and not stopRequested then
+        if isFarming and not stopRequested then
             task.wait(0.5)
         end
     end
 end
 
--- Запуск/остановка
+-- ------------------------------------------------------------
+--  Управление фармом
+-- ------------------------------------------------------------
 local function startFarm()
-    if isRunning then return end
-    isRunning = true
+    if isFarming then return end
+    isFarming = true
     stopRequested = false
     task.spawn(farmCycle)
 end
 
 local function stopFarm()
-    if not isRunning then return end
-    isRunning = false
+    if not isFarming then return end
+    isFarming = false
     stopRequested = true
     if currentTween then
         currentTween:Cancel()
@@ -138,7 +224,124 @@ local function stopFarm()
             hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
         end
     end
+    print("⏹ Фарм остановлен")
 end
 
--- GUI (как было)
--- ... (оставляем тот же GUI, что и в прошлый раз)
+-- ------------------------------------------------------------
+--  GUI
+-- ------------------------------------------------------------
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CoolFarmGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = Player:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 200, 0, 160)
+mainFrame.Position = UDim2.new(0.5, -100, 0.5, -80)
+mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = mainFrame
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 30)
+title.Position = UDim2.new(0, 0, 0, 5)
+title.BackgroundTransparency = 1
+title.Text = "Крутой фарм"
+title.TextColor3 = Color3.fromRGB(255, 200, 50)
+title.TextSize = 18
+title.Font = Enum.Font.GothamBold
+title.Parent = mainFrame
+
+-- Кнопка фарма
+local farmBtn = Instance.new("TextButton")
+farmBtn.Size = UDim2.new(0, 120, 0, 30)
+farmBtn.Position = UDim2.new(0.5, -60, 0, 45)
+farmBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+farmBtn.Text = "Фарм"
+farmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+farmBtn.TextSize = 16
+farmBtn.Font = Enum.Font.GothamBold
+farmBtn.Parent = mainFrame
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 8)
+btnCorner.Parent = farmBtn
+
+-- Кнопка анти-AFK
+local afkBtn = Instance.new("TextButton")
+afkBtn.Size = UDim2.new(0, 120, 0, 30)
+afkBtn.Position = UDim2.new(0.5, -60, 0, 85)
+afkBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 200)
+afkBtn.Text = "Анти-AFK: ВКЛ"
+afkBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+afkBtn.TextSize = 16
+afkBtn.Font = Enum.Font.GothamBold
+afkBtn.Parent = mainFrame
+local afkCorner = Instance.new("UICorner")
+afkCorner.CornerRadius = UDim.new(0, 8)
+afkCorner.Parent = afkBtn
+
+-- Состояния
+local farmingActive = false
+local afkActive = false
+
+-- Обработчик кнопки фарма
+farmBtn.MouseButton1Click:Connect(function()
+    farmingActive = not farmingActive
+    if farmingActive then
+        startFarm()
+        farmBtn.Text = "Стоп"
+        farmBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    else
+        stopFarm()
+        farmBtn.Text = "Фарм"
+        farmBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+    end
+end)
+
+-- Обработчик кнопки анти-AFK
+afkBtn.MouseButton1Click:Connect(function()
+    afkActive = not afkActive
+    if afkActive then
+        startAfk()
+        afkBtn.Text = "Анти-AFK: ВЫКЛ"
+        afkBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    else
+        stopAfk()
+        afkBtn.Text = "Анти-AFK: ВКЛ"
+        afkBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 200)
+    end
+end)
+
+-- Перетаскивание
+local dragging = false
+local dragStart, startPos
+mainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+    end
+end)
+mainFrame.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+mainFrame.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+print("✅ Крутой фарм v8 загружен. Используйте кнопки.")
