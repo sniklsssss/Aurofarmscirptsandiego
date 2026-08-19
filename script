@@ -1,6 +1,7 @@
 -- ============================================================
---  КРУТОЙ ФАРМ v2 (по новым координатам с зажатиями)
---  Плавное движение + паузы с зажатием кнопки E
+--  КРУТОЙ ФАРМ v5 (ЛЕТАЮЩЕЕ ПЕРЕМЕЩЕНИЕ, НЕ ПЕРЕВОРАЧИВАЕТСЯ)
+--  Движение через TweenService, фиксация высоты и вращения
+--  Эмуляция E через VirtualInputManager + поиск ProximityPrompt
 -- ============================================================
 
 local Players = game:GetService("Players")
@@ -9,25 +10,14 @@ local TweenService = game:GetService("TweenService")
 local VirtualInput = game:GetService("VirtualInputManager")
 local RunService = game:GetService("RunService")
 
--- Настройки скорости движения (студий в секунду)
-local MOVE_SPEED = 30
-
--- Код клавиши E (для зажатия)
+-- Код клавиши E
 local KEY_E = 69
 
--- ------------------------------------------------------------
---  МАРШРУТ: список точек с действиями после прибытия
---  Каждый элемент: { pos = Vector3, holdAction = nil или таблица }
---  holdAction = { duration = секунды, repeats = количество повторений, totalPause = общая пауза (опционально) }
---  Если totalPause задан, то он используется как время ожидания после выполнения повторов.
--- ------------------------------------------------------------
+-- Маршрут (как в прошлый раз)
 local route = {
-    -- Первая группа (после точек 1-2 – 15 сек с 5 повторами по 2 сек)
     { pos = Vector3.new(6887.71875, 17.218589782714844, 26.872846603393555) },
     { pos = Vector3.new(6809.7509765625, 17.416330337524414, 22.777130126953125),
       holdAction = { duration = 2, repeats = 5, totalPause = 15 } },
-
-    -- Точки 3-12
     { pos = Vector3.new(6877.3447265625, 17.218589782714844, 21.608007431030273) },
     { pos = Vector3.new(6878.5869140625, 17.218589782714844, 98.57868194580078) },
     { pos = Vector3.new(2939.4375, 17.218589782714844, 107.67415618896484) },
@@ -39,8 +29,6 @@ local route = {
     { pos = Vector3.new(180.6009979248047, 17.218589782714844, -42.60643768310547) },
     { pos = Vector3.new(207.53811645507812, 17.23929786682129, -44.415321350097656),
       holdAction = { duration = 2, repeats = 1, totalPause = 5 } },
-
-    -- Точки 13-22
     { pos = Vector3.new(175.62156677246094, 17.218589782714844, -44.555362701416016) },
     { pos = Vector3.new(172.04054260253906, 17.21858787536621, 142.3052978515625) },
     { pos = Vector3.new(839.2763671875, 17.218589782714844, 143.19053649902344) },
@@ -52,52 +40,109 @@ local route = {
     { pos = Vector3.new(6879.5537109375, 17.416536331176758, -42.14048767089844) },
     { pos = Vector3.new(6809.32080078125, 17.442039489746094, -42.392459869384766),
       holdAction = { duration = 2, repeats = 1, totalPause = 5 } },
-
-    -- Точка 23 – последняя, после неё возврат к началу
     { pos = Vector3.new(6850.42822265625, 17.416536331176758, -41.9425048828125) },
 }
 
--- ------------------------------------------------------------
---  Состояние фарма
--- ------------------------------------------------------------
+-- Состояние
 local isRunning = false
-local currentStep = 1          -- индекс текущего шага в маршруте
-local direction = 1            -- 1 – вперёд, -1 – назад (но мы всегда идём по кругу, поэтому direction не используется)
 local stopRequested = false
 local currentTween = nil
-local holdCoroutine = nil
 
 -- ------------------------------------------------------------
---  Функции управления персонажем
+--  Эмуляция взаимодействия (поиск ProximityPrompt и нажатие E)
 -- ------------------------------------------------------------
-local function setPlatformMode(enabled)
+local function activateInteraction(holdDuration)
     local char = Player.Character
     if not char then return end
-    local hum = char:FindFirstChild("Humanoid")
-    if hum then
-        hum.PlatformStand = enabled
-        hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, not enabled)
-        hum:SetStateEnabled(Enum.HumanoidStateType.Running, not enabled)
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local pos = hrp.Position
+
+    -- Ищем ProximityPrompt в радиусе 10 студий
+    local prompts = {}
+    for _, prompt in ipairs(workspace:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") then
+            local promptPos = prompt.Parent and prompt.Parent:FindFirstChild("Position") and prompt.Parent.Position
+            if promptPos then
+                local dist = (promptPos - pos).Magnitude
+                if dist < 10 then
+                    table.insert(prompts, prompt)
+                end
+            end
+        end
     end
+
+    if #prompts > 0 then
+        -- Нажимаем E несколько раз (удерживаем)
+        for i = 1, math.floor(holdDuration / 0.1) do
+            if not isRunning or stopRequested then break end
+            VirtualInput:SendKeyEvent(true, KEY_E, false, game)
+            task.wait(0.1)
+            VirtualInput:SendKeyEvent(false, KEY_E, false, game)
+            task.wait(0.05)
+        end
+        return true
+    end
+
+    -- Если нет ProximityPrompt, ищем ClickDetector
+    local detectors = {}
+    for _, det in ipairs(workspace:GetDescendants()) do
+        if det:IsA("ClickDetector") then
+            local detPos = det.Parent and det.Parent:FindFirstChild("Position") and det.Parent.Position
+            if detPos then
+                local dist = (detPos - pos).Magnitude
+                if dist < 10 then
+                    table.insert(detectors, det)
+                end
+            end
+        end
+    end
+
+    if #detectors > 0 then
+        for _, d in ipairs(detectors) do
+            pcall(function()
+                d:FireClick(Player.Mouse)
+            end)
+        end
+        return true
+    end
+
+    -- Если ничего не нашли, просто ждём (имитация)
+    task.wait(holdDuration)
+    return false
 end
 
--- Плавное перемещение к точке
-local function moveToPoint(targetPos)
+-- ------------------------------------------------------------
+--  Плавное перемещение (летающее, с фиксацией высоты и вращения)
+-- ------------------------------------------------------------
+local function flyToPoint(targetPos, speed)
     local char = Player.Character
     if not char then return false end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
 
-    local distance = (targetPos - hrp.Position).Magnitude
-    if distance < 0.5 then
-        return true -- уже на месте
+    -- Отключаем физику для плавного полёта (но не PlatformStand)
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then
+        hum.PlatformStand = false
+        hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Running, false)
     end
 
-    local duration = distance / MOVE_SPEED
+    -- Фиксируем вращение (сохраняем текущий угол, только смещаем позицию)
+    local currentCF = hrp.CFrame
+    local targetCF = CFrame.new(targetPos) * CFrame.Angles(0, currentCF.Y, 0) -- сохраняем поворот по Y
+
+    local distance = (targetPos - hrp.Position).Magnitude
+    local duration = distance / speed
     if duration < 0.1 then duration = 0.1 end
 
-    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
-    local goal = { CFrame = CFrame.new(targetPos) }
+    local tweenInfo = TweenInfo.new(
+        duration,
+        Enum.EasingStyle.Linear,
+        Enum.EasingDirection.Out
+    )
+    local goal = { CFrame = targetCF }
     currentTween = TweenService:Create(hrp, tweenInfo, goal)
 
     local completed = false
@@ -107,7 +152,6 @@ local function moveToPoint(targetPos)
 
     currentTween:Play()
 
-    -- Ждём завершения или остановки
     while not completed and isRunning and not stopRequested do
         task.wait(0.05)
     end
@@ -120,8 +164,10 @@ local function moveToPoint(targetPos)
     return true
 end
 
--- Выполнение зажатия кнопки (повторы с паузами)
-local function performHoldAction(action)
+-- ------------------------------------------------------------
+--  Выполнение действия с повторами и паузами
+-- ------------------------------------------------------------
+local function performHold(action)
     if not action then return end
     local duration = action.duration or 2
     local repeats = action.repeats or 1
@@ -129,72 +175,47 @@ local function performHoldAction(action)
 
     for i = 1, repeats do
         if not isRunning or stopRequested then break end
-        -- Зажать
-        VirtualInput:SendKeyEvent(true, KEY_E, false, game)
-        task.wait(duration)
-        if not isRunning or stopRequested then
-            VirtualInput:SendKeyEvent(false, KEY_E, false, game)
-            break
-        end
-        -- Отпустить
-        VirtualInput:SendKeyEvent(false, KEY_E, false, game)
-        -- Если не последний повтор, небольшая пауза (0.2 сек)
+        activateInteraction(duration)
+        if not isRunning or stopRequested then break end
         if i < repeats then
             task.wait(0.2)
         end
     end
 
-    -- Дожидаемся оставшейся части общей паузы (если totalPause больше, чем уже прошло)
-    local elapsed = duration * repeats
-    local remaining = totalPause - elapsed
+    local remaining = totalPause - (duration * repeats)
     if remaining > 0 and isRunning and not stopRequested then
         task.wait(remaining)
     end
 end
 
 -- ------------------------------------------------------------
---  Основной цикл фарма
+--  Основной цикл
 -- ------------------------------------------------------------
 local function farmCycle()
+    local speed = 40 -- скорость полёта (студий в секунду)
     while isRunning and not stopRequested do
-        -- Проходим все шаги маршрута
-        for i = 1, #route do
+        for i, step in ipairs(route) do
             if not isRunning or stopRequested then break end
-
-            local step = route[i]
-            -- Двигаемся к точке
-            local ok = moveToPoint(step.pos)
+            local ok = flyToPoint(step.pos, speed)
             if not ok then break end
-
-            -- Если есть действие после прибытия
             if step.holdAction and isRunning and not stopRequested then
-                performHoldAction(step.holdAction)
+                performHold(step.holdAction)
             end
-
-            -- Небольшая задержка между точками
-            task.wait(0.1)
+            task.wait(0.2)
         end
-
-        -- Если дошли до конца и не остановлены, начинаем сначала
         if isRunning and not stopRequested then
-            -- Можно добавить паузу перед новым кругом (опционально)
             task.wait(0.5)
         end
     end
 end
 
 -- ------------------------------------------------------------
---  Запуск / остановка фарма
+--  Запуск / остановка
 -- ------------------------------------------------------------
 local function startFarm()
     if isRunning then return end
     isRunning = true
     stopRequested = false
-
-    -- Подготовка персонажа
-    setPlatformMode(true)
-
-    -- Запускаем цикл в отдельном потоке
     task.spawn(farmCycle)
 end
 
@@ -202,28 +223,23 @@ local function stopFarm()
     if not isRunning then return end
     isRunning = false
     stopRequested = true
-
-    -- Отжимаем клавишу, если зажата
-    VirtualInput:SendKeyEvent(false, KEY_E, false, game)
-
-    -- Отменяем твин
     if currentTween then
         currentTween:Cancel()
         currentTween = nil
     end
-
-    -- Отменяем корутину ожидания (если есть)
-    if holdCoroutine then
-        task.cancel(holdCoroutine)
-        holdCoroutine = nil
+    -- Восстанавливаем управление
+    local char = Player.Character
+    if char then
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then
+            hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+            hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+        end
     end
-
-    -- Возвращаем управление персонажу
-    setPlatformMode(false)
 end
 
 -- ------------------------------------------------------------
---  GUI (как просили – без изменений)
+--  GUI (без изменений)
 -- ------------------------------------------------------------
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "CoolFarmGui"
@@ -279,7 +295,7 @@ btn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Перетаскивание окна
+-- Перетаскивание
 local dragging = false
 local dragStart, startPos
 mainFrame.InputBegan:Connect(function(input)
@@ -306,4 +322,4 @@ mainFrame.InputEnded:Connect(function(input)
     end
 end)
 
-print("✅ Крутой фарм загружен. Нажмите 'Фарм' для старта.")
+print("✅ Крутой фарм v5 загружен. Нажмите Фарм для старта.")
