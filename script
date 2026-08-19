@@ -1,7 +1,8 @@
 -- ============================================================
---  КРУТОЙ ФАРМ v5 (ЛЕТАЮЩЕЕ ПЕРЕМЕЩЕНИЕ, НЕ ПЕРЕВОРАЧИВАЕТСЯ)
+--  КРУТОЙ ФАРМ v5.1 (ЛЕТАЮЩЕЕ ПЕРЕМЕЩЕНИЕ, НЕ ПЕРЕВОРАЧИВАЕТСЯ)
 --  Движение через TweenService, фиксация высоты и вращения
 --  Эмуляция E через VirtualInputManager + поиск ProximityPrompt
+--  СКОРОСТЬ 150 + АНТИ-AFK (автоматически)
 -- ============================================================
 
 local Players = game:GetService("Players")
@@ -13,7 +14,7 @@ local RunService = game:GetService("RunService")
 -- Код клавиши E
 local KEY_E = 69
 
--- Маршрут (как в прошлый раз)
+-- Маршрут (без изменений)
 local route = {
     { pos = Vector3.new(6887.71875, 17.218589782714844, 26.872846603393555) },
     { pos = Vector3.new(6809.7509765625, 17.416330337524414, 22.777130126953125),
@@ -47,6 +48,7 @@ local route = {
 local isRunning = false
 local stopRequested = false
 local currentTween = nil
+local afkThread = nil
 
 -- ------------------------------------------------------------
 --  Эмуляция взаимодействия (поиск ProximityPrompt и нажатие E)
@@ -73,7 +75,6 @@ local function activateInteraction(holdDuration)
     end
 
     if #prompts > 0 then
-        -- Нажимаем E несколько раз (удерживаем)
         for i = 1, math.floor(holdDuration / 0.1) do
             if not isRunning or stopRequested then break end
             VirtualInput:SendKeyEvent(true, KEY_E, false, game)
@@ -107,13 +108,12 @@ local function activateInteraction(holdDuration)
         return true
     end
 
-    -- Если ничего не нашли, просто ждём (имитация)
     task.wait(holdDuration)
     return false
 end
 
 -- ------------------------------------------------------------
---  Плавное перемещение (летающее, с фиксацией высоты и вращения)
+--  Плавное перемещение (скорость 150)
 -- ------------------------------------------------------------
 local function flyToPoint(targetPos, speed)
     local char = Player.Character
@@ -121,7 +121,6 @@ local function flyToPoint(targetPos, speed)
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
 
-    -- Отключаем физику для плавного полёта (но не PlatformStand)
     local hum = char:FindFirstChild("Humanoid")
     if hum then
         hum.PlatformStand = false
@@ -129,27 +128,19 @@ local function flyToPoint(targetPos, speed)
         hum:SetStateEnabled(Enum.HumanoidStateType.Running, false)
     end
 
-    -- Фиксируем вращение (сохраняем текущий угол, только смещаем позицию)
     local currentCF = hrp.CFrame
-    local targetCF = CFrame.new(targetPos) * CFrame.Angles(0, currentCF.Y, 0) -- сохраняем поворот по Y
+    local targetCF = CFrame.new(targetPos) * CFrame.Angles(0, currentCF.Y, 0)
 
     local distance = (targetPos - hrp.Position).Magnitude
     local duration = distance / speed
     if duration < 0.1 then duration = 0.1 end
 
-    local tweenInfo = TweenInfo.new(
-        duration,
-        Enum.EasingStyle.Linear,
-        Enum.EasingDirection.Out
-    )
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
     local goal = { CFrame = targetCF }
     currentTween = TweenService:Create(hrp, tweenInfo, goal)
 
     local completed = false
-    currentTween.Completed:Connect(function()
-        completed = true
-    end)
-
+    currentTween.Completed:Connect(function() completed = true end)
     currentTween:Play()
 
     while not completed and isRunning and not stopRequested do
@@ -160,7 +151,6 @@ local function flyToPoint(targetPos, speed)
         currentTween:Cancel()
         return false
     end
-
     return true
 end
 
@@ -189,10 +179,40 @@ local function performHold(action)
 end
 
 -- ------------------------------------------------------------
+--  АНТИ-AFK (микродвижение каждые 15 секунд)
+-- ------------------------------------------------------------
+local function startAfk()
+    if afkThread then return end
+    afkThread = task.spawn(function()
+        while isRunning and not stopRequested do
+            task.wait(15)
+            if not isRunning or stopRequested then break end
+            local char = Player.Character
+            if char then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local pos = hrp.Position
+                    hrp.CFrame = CFrame.new(pos + Vector3.new(0.5, 0, 0))
+                    task.wait(0.05)
+                    hrp.CFrame = CFrame.new(pos)
+                end
+            end
+        end
+    end)
+end
+
+local function stopAfk()
+    if afkThread then
+        task.cancel(afkThread)
+        afkThread = nil
+    end
+end
+
+-- ------------------------------------------------------------
 --  Основной цикл
 -- ------------------------------------------------------------
 local function farmCycle()
-    local speed = 40 -- скорость полёта (студий в секунду)
+    local speed = 150 -- УСКОРЕННО
     while isRunning and not stopRequested do
         for i, step in ipairs(route) do
             if not isRunning or stopRequested then break end
@@ -217,17 +237,18 @@ local function startFarm()
     isRunning = true
     stopRequested = false
     task.spawn(farmCycle)
+    startAfk()  -- запускаем анти-AFK
 end
 
 local function stopFarm()
     if not isRunning then return end
     isRunning = false
     stopRequested = true
+    stopAfk()   -- останавливаем анти-AFK
     if currentTween then
         currentTween:Cancel()
         currentTween = nil
     end
-    -- Восстанавливаем управление
     local char = Player.Character
     if char then
         local hum = char:FindFirstChild("Humanoid")
@@ -322,4 +343,4 @@ mainFrame.InputEnded:Connect(function(input)
     end
 end)
 
-print("✅ Крутой фарм v5 загружен. Нажмите Фарм для старта.")
+print("✅ Крутой фарм v5.1 загружен (speed 150, анти-AFK включён). Нажмите Фарм для старта.")
