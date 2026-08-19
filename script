@@ -1,19 +1,17 @@
 -- ============================================================
---  КРУТОЙ ФАРМ v8 (клик по центру экрана + анти-AFK)
---  Летает по точкам, кликает в центр экрана, не дает кикнуть
+--  КРУТОЙ ФАРМ v9 (работает через VirtualInputManager)
+--  Клик в центр экрана + анти-AFK + перемещение
 -- ============================================================
 
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local VirtualInput = game:GetService("VirtualInputManager")
+local GuiService = game:GetService("GuiService")
 
 local FLY_SPEED = 60
-local HOLD_DURATION = 2
 
--- Маршрут (те же точки)
+-- Маршрут (те же точки, что и раньше)
 local route = {
     { pos = Vector3.new(6887.71875, 17.218589782714844, 26.872846603393555) },
     { pos = Vector3.new(6809.7509765625, 17.416330337524414, 22.777130126953125),
@@ -51,36 +49,22 @@ local currentTween = nil
 local afkThread = nil
 
 -- ------------------------------------------------------------
---  Функция клика в центр экрана (с удержанием)
+--  Клик в центр экрана с удержанием
 -- ------------------------------------------------------------
 local function clickCenter(holdDuration)
-    local mouse = Player:GetMouse()
-    if not mouse then
-        print("⚠️ Мышь не найдена")
-        return
-    end
-    local screenSize = game:GetService("GuiService"):GetScreenResolution()
+    local screenSize = GuiService:GetScreenResolution()
     local centerX, centerY = screenSize.X / 2, screenSize.Y / 2
-    mouse.Move(Vector2.new(centerX, centerY))
-    mouse.Button1Down()
+    -- Перемещаем курсор в центр
+    VirtualInput:SetMousePosition(centerX, centerY)
+    -- Нажимаем левую кнопку
+    VirtualInput:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, true, centerX, centerY)
     task.wait(holdDuration)
-    mouse.Button1Up()
-    print("✅ Клик в центр выполнен")
+    -- Отпускаем
+    VirtualInput:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, false, centerX, centerY)
 end
 
 -- ------------------------------------------------------------
---  Альтернативное нажатие E через VirtualInput (если клик не работает)
--- ------------------------------------------------------------
-local function pressE(holdDuration)
-    pcall(function()
-        VirtualInput:SendKeyEvent(true, 69, false, game)
-        task.wait(holdDuration)
-        VirtualInput:SendKeyEvent(false, 69, false, game)
-    end)
-end
-
--- ------------------------------------------------------------
---  Действие при прибытии (комбинируем оба способа)
+--  Действие при прибытии
 -- ------------------------------------------------------------
 local function performAction(action)
     if not action then return end
@@ -90,10 +74,7 @@ local function performAction(action)
 
     for i = 1, repeats do
         if not isFarming or stopRequested then break end
-        -- Пробуем клик в центр
         clickCenter(duration)
-        -- Дополнительно пробуем нажать E (на всякий случай)
-        pressE(duration)
         if not isFarming or stopRequested then break end
         if i < repeats then
             task.wait(0.2)
@@ -107,7 +88,7 @@ local function performAction(action)
 end
 
 -- ------------------------------------------------------------
---  Перемещение (летающее, без переворотов)
+--  Перемещение (TweenService)
 -- ------------------------------------------------------------
 local function flyToPoint(targetPos, speed)
     local char = Player.Character
@@ -149,7 +130,7 @@ local function flyToPoint(targetPos, speed)
 end
 
 -- ------------------------------------------------------------
---  Анти-AFK (движение мыши каждые 10 секунд)
+--  Анти-AFK (движение мыши каждые 10 сек)
 -- ------------------------------------------------------------
 local function startAfk()
     if afkThread then return end
@@ -158,14 +139,11 @@ local function startAfk()
         while isAfkEnabled do
             task.wait(10)
             if not isAfkEnabled then break end
-            local mouse = Player:GetMouse()
-            if mouse then
-                local pos = mouse.X
-                mouse.Move(Vector2.new(pos + 1, mouse.Y))
-                task.wait(0.1)
-                mouse.Move(Vector2.new(pos, mouse.Y))
-                print("🔄 Анти-AFK: движение мыши")
-            end
+            local screenSize = GuiService:GetScreenResolution()
+            local x, y = screenSize.X / 2, screenSize.Y / 2
+            VirtualInput:SetMousePosition(x + 1, y)
+            task.wait(0.1)
+            VirtualInput:SetMousePosition(x, y)
         end
     end)
 end
@@ -224,11 +202,10 @@ local function stopFarm()
             hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
         end
     end
-    print("⏹ Фарм остановлен")
 end
 
 -- ------------------------------------------------------------
---  GUI
+--  GUI (две кнопки: Фарм и Анти-AFK)
 -- ------------------------------------------------------------
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "CoolFarmGui"
@@ -257,7 +234,6 @@ title.TextSize = 18
 title.Font = Enum.Font.GothamBold
 title.Parent = mainFrame
 
--- Кнопка фарма
 local farmBtn = Instance.new("TextButton")
 farmBtn.Size = UDim2.new(0, 120, 0, 30)
 farmBtn.Position = UDim2.new(0.5, -60, 0, 45)
@@ -271,7 +247,6 @@ local btnCorner = Instance.new("UICorner")
 btnCorner.CornerRadius = UDim.new(0, 8)
 btnCorner.Parent = farmBtn
 
--- Кнопка анти-AFK
 local afkBtn = Instance.new("TextButton")
 afkBtn.Size = UDim2.new(0, 120, 0, 30)
 afkBtn.Position = UDim2.new(0.5, -60, 0, 85)
@@ -285,11 +260,9 @@ local afkCorner = Instance.new("UICorner")
 afkCorner.CornerRadius = UDim.new(0, 8)
 afkCorner.Parent = afkBtn
 
--- Состояния
 local farmingActive = false
 local afkActive = false
 
--- Обработчик кнопки фарма
 farmBtn.MouseButton1Click:Connect(function()
     farmingActive = not farmingActive
     if farmingActive then
@@ -303,7 +276,6 @@ farmBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Обработчик кнопки анти-AFK
 afkBtn.MouseButton1Click:Connect(function()
     afkActive = not afkActive
     if afkActive then
@@ -317,7 +289,7 @@ afkBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Перетаскивание
+-- Перетаскивание окна
 local dragging = false
 local dragStart, startPos
 mainFrame.InputBegan:Connect(function(input)
@@ -344,4 +316,4 @@ mainFrame.InputEnded:Connect(function(input)
     end
 end)
 
-print("✅ Крутой фарм v8 загружен. Используйте кнопки.")
+print("✅ Крутой фарм v9 загружен. Используйте кнопки.")
