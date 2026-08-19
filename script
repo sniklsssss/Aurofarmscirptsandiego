@@ -1,20 +1,18 @@
 -- ============================================================
---  КРУТОЙ ФАРМ v5.1 (ЛЕТАЮЩЕЕ ПЕРЕМЕЩЕНИЕ, НЕ ПЕРЕВОРАЧИВАЕТСЯ)
---  Движение через TweenService, фиксация высоты и вращения
---  Эмуляция E через VirtualInputManager + поиск ProximityPrompt
---  СКОРОСТЬ 150 + АНТИ-AFK (автоматически)
+--  КРУТОЙ ФАРМ v5.2 (МГНОВЕННОЕ ПЕРЕМЕЩЕНИЕ)
+--  Движение через TweenService с SPEED = 5000
+--  Анти-AFK + эмуляция E
 -- ============================================================
 
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
 local VirtualInput = game:GetService("VirtualInputManager")
-local RunService = game:GetService("RunService")
 
--- Код клавиши E
 local KEY_E = 69
+local SPEED = 5000  -- ОГРОМНАЯ СКОРОСТЬ (почти телепорт)
 
--- Маршрут (без изменений)
+-- Маршрут
 local route = {
     { pos = Vector3.new(6887.71875, 17.218589782714844, 26.872846603393555) },
     { pos = Vector3.new(6809.7509765625, 17.416330337524414, 22.777130126953125),
@@ -51,7 +49,7 @@ local currentTween = nil
 local afkThread = nil
 
 -- ------------------------------------------------------------
---  Эмуляция взаимодействия (поиск ProximityPrompt и нажатие E)
+--  Эмуляция взаимодействия
 -- ------------------------------------------------------------
 local function activateInteraction(holdDuration)
     local char = Player.Character
@@ -61,51 +59,32 @@ local function activateInteraction(holdDuration)
     local pos = hrp.Position
 
     -- Ищем ProximityPrompt в радиусе 10 студий
-    local prompts = {}
     for _, prompt in ipairs(workspace:GetDescendants()) do
         if prompt:IsA("ProximityPrompt") then
             local promptPos = prompt.Parent and prompt.Parent:FindFirstChild("Position") and prompt.Parent.Position
-            if promptPos then
-                local dist = (promptPos - pos).Magnitude
-                if dist < 10 then
-                    table.insert(prompts, prompt)
+            if promptPos and (promptPos - pos).Magnitude < 10 then
+                for i = 1, math.floor(holdDuration / 0.1) do
+                    if not isRunning or stopRequested then break end
+                    VirtualInput:SendKeyEvent(true, KEY_E, false, game)
+                    task.wait(0.1)
+                    VirtualInput:SendKeyEvent(false, KEY_E, false, game)
+                    task.wait(0.05)
                 end
+                return true
             end
         end
-    end
-
-    if #prompts > 0 then
-        for i = 1, math.floor(holdDuration / 0.1) do
-            if not isRunning or stopRequested then break end
-            VirtualInput:SendKeyEvent(true, KEY_E, false, game)
-            task.wait(0.1)
-            VirtualInput:SendKeyEvent(false, KEY_E, false, game)
-            task.wait(0.05)
-        end
-        return true
     end
 
     -- Если нет ProximityPrompt, ищем ClickDetector
-    local detectors = {}
     for _, det in ipairs(workspace:GetDescendants()) do
         if det:IsA("ClickDetector") then
             local detPos = det.Parent and det.Parent:FindFirstChild("Position") and det.Parent.Position
-            if detPos then
-                local dist = (detPos - pos).Magnitude
-                if dist < 10 then
-                    table.insert(detectors, det)
-                end
+            if detPos and (detPos - pos).Magnitude < 10 then
+                pcall(function() det:FireClick(Player.Mouse) end)
+                task.wait(holdDuration)
+                return true
             end
         end
-    end
-
-    if #detectors > 0 then
-        for _, d in ipairs(detectors) do
-            pcall(function()
-                d:FireClick(Player.Mouse)
-            end)
-        end
-        return true
     end
 
     task.wait(holdDuration)
@@ -113,9 +92,9 @@ local function activateInteraction(holdDuration)
 end
 
 -- ------------------------------------------------------------
---  Плавное перемещение (скорость 150)
+--  Перемещение с огромной скоростью
 -- ------------------------------------------------------------
-local function flyToPoint(targetPos, speed)
+local function flyToPoint(targetPos)
     local char = Player.Character
     if not char then return false end
     local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -132,8 +111,8 @@ local function flyToPoint(targetPos, speed)
     local targetCF = CFrame.new(targetPos) * CFrame.Angles(0, currentCF.Y, 0)
 
     local distance = (targetPos - hrp.Position).Magnitude
-    local duration = distance / speed
-    if duration < 0.1 then duration = 0.1 end
+    local duration = distance / SPEED
+    if duration < 0.01 then duration = 0.01 end
 
     local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
     local goal = { CFrame = targetCF }
@@ -144,7 +123,7 @@ local function flyToPoint(targetPos, speed)
     currentTween:Play()
 
     while not completed and isRunning and not stopRequested do
-        task.wait(0.05)
+        task.wait(0.01)
     end
 
     if stopRequested then
@@ -155,7 +134,7 @@ local function flyToPoint(targetPos, speed)
 end
 
 -- ------------------------------------------------------------
---  Выполнение действия с повторами и паузами
+--  Выполнение действия
 -- ------------------------------------------------------------
 local function performHold(action)
     if not action then return end
@@ -179,7 +158,7 @@ local function performHold(action)
 end
 
 -- ------------------------------------------------------------
---  АНТИ-AFK (микродвижение каждые 15 секунд)
+--  Анти-AFK
 -- ------------------------------------------------------------
 local function startAfk()
     if afkThread then return end
@@ -212,16 +191,15 @@ end
 --  Основной цикл
 -- ------------------------------------------------------------
 local function farmCycle()
-    local speed = 150 -- УСКОРЕННО
     while isRunning and not stopRequested do
-        for i, step in ipairs(route) do
+        for _, step in ipairs(route) do
             if not isRunning or stopRequested then break end
-            local ok = flyToPoint(step.pos, speed)
+            local ok = flyToPoint(step.pos)
             if not ok then break end
             if step.holdAction and isRunning and not stopRequested then
                 performHold(step.holdAction)
             end
-            task.wait(0.2)
+            task.wait(0.1)
         end
         if isRunning and not stopRequested then
             task.wait(0.5)
@@ -237,14 +215,14 @@ local function startFarm()
     isRunning = true
     stopRequested = false
     task.spawn(farmCycle)
-    startAfk()  -- запускаем анти-AFK
+    startAfk()
 end
 
 local function stopFarm()
     if not isRunning then return end
     isRunning = false
     stopRequested = true
-    stopAfk()   -- останавливаем анти-AFK
+    stopAfk()
     if currentTween then
         currentTween:Cancel()
         currentTween = nil
@@ -260,7 +238,7 @@ local function stopFarm()
 end
 
 -- ------------------------------------------------------------
---  GUI (без изменений)
+--  GUI
 -- ------------------------------------------------------------
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "CoolFarmGui"
@@ -343,4 +321,4 @@ mainFrame.InputEnded:Connect(function(input)
     end
 end)
 
-print("✅ Крутой фарм v5.1 загружен (speed 150, анти-AFK включён). Нажмите Фарм для старта.")
+print("✅ Крутой фарм v5.2 загружен (speed=5000, анти-AFK). Нажмите Фарм.")
