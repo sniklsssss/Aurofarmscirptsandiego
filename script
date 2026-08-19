@@ -1,78 +1,103 @@
--- =============================================
---  Крутой фарм – плавное движение по точкам
---  с зажатием кнопки взаимодействия на 3 сек
--- =============================================
+-- ============================================================
+--  КРУТОЙ ФАРМ v2 (по новым координатам с зажатиями)
+--  Плавное движение + паузы с зажатием кнопки E
+-- ============================================================
 
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 local VirtualInput = game:GetService("VirtualInputManager")
+local RunService = game:GetService("RunService")
 
--- Список координат (X, Y, Z)
-local points = {
-    Vector3.new(6805.52197265625, 17.416330337524414, 23.38254737854004),
-    Vector3.new(6864.8115234375, 17.218589782714844, 107.11604309082031),
-    Vector3.new(2713.725830078125, 17.218589782714844, 95.60968017578125),
-    Vector3.new(2694.9462890625, 17.218589782714844, 156.40382385253906),
-    Vector3.new(1156.875244140625, 17.218591690063477, 143.2195587158203),
-    Vector3.new(171.43536376953125, 17.636886596679688, 123.12442779541016),
-    Vector3.new(172.48391723632812, 17.218591690063477, -49.671627044677734),
-    Vector3.new(207.27359008789062, 17.23929786682129, -45.09959411621094),
-    Vector3.new(173.20655822753906, 17.21858787536621, -43.2515983581543),
-    Vector3.new(175.20480346679688, 17.21858787536621, 92.94166564941406),
-    Vector3.new(855.5984497070312, 16.00087547302246, 147.19338989257812),
-    Vector3.new(1896.415771484375, 15.998120307922363, 148.96400451660156),
-    Vector3.new(2851.40625, 17.29795265197754, 157.09959411621094),
-    Vector3.new(3420.34521484375, 16.0008602142334, 140.8162841796875),
-    Vector3.new(5391.77783203125, 15.999813079833984, 150.42483520507812),
-    Vector3.new(6359.9501953125, 16.00119972229004, 155.4555206298828),
-    Vector3.new(6892.181640625, 17.218591690063477, 85.88983154296875),
-    Vector3.new(6834.7626953125, 17.416330337524414, -42.18296432495117),
-    Vector3.new(6810.546875, 17.442039489746094, -42.33958435058594),
-    Vector3.new(6848.09228515625, 17.416536331176758, -42.09635925292969)
+-- Настройки скорости движения (студий в секунду)
+local MOVE_SPEED = 30
+
+-- Код клавиши E (для зажатия)
+local KEY_E = 69
+
+-- ------------------------------------------------------------
+--  МАРШРУТ: список точек с действиями после прибытия
+--  Каждый элемент: { pos = Vector3, holdAction = nil или таблица }
+--  holdAction = { duration = секунды, repeats = количество повторений, totalPause = общая пауза (опционально) }
+--  Если totalPause задан, то он используется как время ожидания после выполнения повторов.
+-- ------------------------------------------------------------
+local route = {
+    -- Первая группа (после точек 1-2 – 15 сек с 5 повторами по 2 сек)
+    { pos = Vector3.new(6887.71875, 17.218589782714844, 26.872846603393555) },
+    { pos = Vector3.new(6809.7509765625, 17.416330337524414, 22.777130126953125),
+      holdAction = { duration = 2, repeats = 5, totalPause = 15 } },
+
+    -- Точки 3-12
+    { pos = Vector3.new(6877.3447265625, 17.218589782714844, 21.608007431030273) },
+    { pos = Vector3.new(6878.5869140625, 17.218589782714844, 98.57868194580078) },
+    { pos = Vector3.new(2939.4375, 17.218589782714844, 107.67415618896484) },
+    { pos = Vector3.new(2841.397216796875, 17.218589782714844, 95.64437103271484) },
+    { pos = Vector3.new(2757.085205078125, 17.218589782714844, 94.65489959716797) },
+    { pos = Vector3.new(2710.453125, 17.218589782714844, 113.64794921875) },
+    { pos = Vector3.new(2693.919189453125, 17.218589782714844, 158.97024536132812) },
+    { pos = Vector3.new(181.60000610351562, 17.21858787536621, 143.19992065429688) },
+    { pos = Vector3.new(180.6009979248047, 17.218589782714844, -42.60643768310547) },
+    { pos = Vector3.new(207.53811645507812, 17.23929786682129, -44.415321350097656),
+      holdAction = { duration = 2, repeats = 1, totalPause = 5 } },
+
+    -- Точки 13-22
+    { pos = Vector3.new(175.62156677246094, 17.218589782714844, -44.555362701416016) },
+    { pos = Vector3.new(172.04054260253906, 17.21858787536621, 142.3052978515625) },
+    { pos = Vector3.new(839.2763671875, 17.218589782714844, 143.19053649902344) },
+    { pos = Vector3.new(2160.346923828125, 17.218589782714844, 142.41714477539062) },
+    { pos = Vector3.new(2693.146240234375, 17.218591690063477, 157.01223754882812) },
+    { pos = Vector3.new(2692.99267578125, 17.218589782714844, 129.21585083007812) },
+    { pos = Vector3.new(2865.84765625, 17.218589782714844, 110.69588470458984) },
+    { pos = Vector3.new(6894.1796875, 17.21858787536621, 124.61898040771484) },
+    { pos = Vector3.new(6879.5537109375, 17.416536331176758, -42.14048767089844) },
+    { pos = Vector3.new(6809.32080078125, 17.442039489746094, -42.392459869384766),
+      holdAction = { duration = 2, repeats = 1, totalPause = 5 } },
+
+    -- Точка 23 – последняя, после неё возврат к началу
+    { pos = Vector3.new(6850.42822265625, 17.416536331176758, -41.9425048828125) },
 }
 
--- Настройки
-local MOVE_SPEED = 25   -- студий в секунду (бег)
-local HOLD_TIME = 3     -- секунд зажатия клавиши
-
--- Состояние
+-- ------------------------------------------------------------
+--  Состояние фарма
+-- ------------------------------------------------------------
 local isRunning = false
-local currentIndex = 1
-local direction = 1   -- 1 - вперёд, -1 - назад
+local currentStep = 1          -- индекс текущего шага в маршруте
+local direction = 1            -- 1 – вперёд, -1 – назад (но мы всегда идём по кругу, поэтому direction не используется)
+local stopRequested = false
 local currentTween = nil
 local holdCoroutine = nil
-local stopRequested = false
 
--- Функция плавного перемещения к точке
+-- ------------------------------------------------------------
+--  Функции управления персонажем
+-- ------------------------------------------------------------
+local function setPlatformMode(enabled)
+    local char = Player.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then
+        hum.PlatformStand = enabled
+        hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, not enabled)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Running, not enabled)
+    end
+end
+
+-- Плавное перемещение к точке
 local function moveToPoint(targetPos)
     local char = Player.Character
     if not char then return false end
     local hrp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChild("Humanoid")
-    if not hrp or not hum then return false end
-
-    -- Включаем режим, чтобы персонаж не падал и не мешал
-    hum.PlatformStand = true
-    hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-    hum:SetStateEnabled(Enum.HumanoidStateType.Running, false)
+    if not hrp then return false end
 
     local distance = (targetPos - hrp.Position).Magnitude
     if distance < 0.5 then
-        -- Уже на месте
-        return true
+        return true -- уже на месте
     end
 
     local duration = distance / MOVE_SPEED
     if duration < 0.1 then duration = 0.1 end
 
-    local tweenInfo = TweenInfo.new(
-        duration,
-        Enum.EasingStyle.Linear,
-        Enum.EasingDirection.Out
-    )
-    local goal = {CFrame = CFrame.new(targetPos)}
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+    local goal = { CFrame = CFrame.new(targetPos) }
     currentTween = TweenService:Create(hrp, tweenInfo, goal)
 
     local completed = false
@@ -84,7 +109,7 @@ local function moveToPoint(targetPos)
 
     -- Ждём завершения или остановки
     while not completed and isRunning and not stopRequested do
-        task.wait(0.1)
+        task.wait(0.05)
     end
 
     if stopRequested then
@@ -95,115 +120,111 @@ local function moveToPoint(targetPos)
     return true
 end
 
--- Функция имитации зажатия клавиши (например, E)
-local function holdInteraction()
-    if not isRunning or stopRequested then return end
-    -- Эмулируем нажатие клавиши E (код 69)
-    VirtualInput:SendKeyEvent(true, 69, false, game)
-    task.wait(HOLD_TIME)
-    if not isRunning or stopRequested then
-        VirtualInput:SendKeyEvent(false, 69, false, game)
-        return
-    end
-    VirtualInput:SendKeyEvent(false, 69, false, game)
-end
+-- Выполнение зажатия кнопки (повторы с паузами)
+local function performHoldAction(action)
+    if not action then return end
+    local duration = action.duration or 2
+    local repeats = action.repeats or 1
+    local totalPause = action.totalPause or (duration * repeats)
 
--- Основной цикл фарма
-local function farmLoop()
-    while isRunning and not stopRequested do
-        -- Двигаемся к текущей точке
-        local target = points[currentIndex]
-        local success = moveToPoint(target)
-        if not success then
-            -- Если остановили, выходим
+    for i = 1, repeats do
+        if not isRunning or stopRequested then break end
+        -- Зажать
+        VirtualInput:SendKeyEvent(true, KEY_E, false, game)
+        task.wait(duration)
+        if not isRunning or stopRequested then
+            VirtualInput:SendKeyEvent(false, KEY_E, false, game)
             break
         end
-
-        if not isRunning or stopRequested then break end
-
-        -- Достигли точки – зажимаем кнопку
-        holdCoroutine = task.spawn(holdInteraction)
-
-        -- Ждём окончания зажатия
-        while holdCoroutine and coroutine.status(holdCoroutine) ~= "dead" do
-            task.wait(0.1)
-            if not isRunning or stopRequested then
-                -- Принудительно отжимаем
-                VirtualInput:SendKeyEvent(false, 69, false, game)
-                break
-            end
+        -- Отпустить
+        VirtualInput:SendKeyEvent(false, KEY_E, false, game)
+        -- Если не последний повтор, небольшая пауза (0.2 сек)
+        if i < repeats then
+            task.wait(0.2)
         end
+    end
 
-        if not isRunning or stopRequested then break end
-
-        -- Переход к следующей точке
-        local nextIndex = currentIndex + direction
-        if nextIndex > #points then
-            direction = -1
-            nextIndex = currentIndex - 1
-        elseif nextIndex < 1 then
-            direction = 1
-            nextIndex = currentIndex + 1
-        end
-        currentIndex = nextIndex
+    -- Дожидаемся оставшейся части общей паузы (если totalPause больше, чем уже прошло)
+    local elapsed = duration * repeats
+    local remaining = totalPause - elapsed
+    if remaining > 0 and isRunning and not stopRequested then
+        task.wait(remaining)
     end
 end
 
--- Запуск / остановка
+-- ------------------------------------------------------------
+--  Основной цикл фарма
+-- ------------------------------------------------------------
+local function farmCycle()
+    while isRunning and not stopRequested do
+        -- Проходим все шаги маршрута
+        for i = 1, #route do
+            if not isRunning or stopRequested then break end
+
+            local step = route[i]
+            -- Двигаемся к точке
+            local ok = moveToPoint(step.pos)
+            if not ok then break end
+
+            -- Если есть действие после прибытия
+            if step.holdAction and isRunning and not stopRequested then
+                performHoldAction(step.holdAction)
+            end
+
+            -- Небольшая задержка между точками
+            task.wait(0.1)
+        end
+
+        -- Если дошли до конца и не остановлены, начинаем сначала
+        if isRunning and not stopRequested then
+            -- Можно добавить паузу перед новым кругом (опционально)
+            task.wait(0.5)
+        end
+    end
+end
+
+-- ------------------------------------------------------------
+--  Запуск / остановка фарма
+-- ------------------------------------------------------------
 local function startFarm()
     if isRunning then return end
     isRunning = true
     stopRequested = false
 
-    -- Сброс индекса и направления (для начала с первой точки)
-    currentIndex = 1
-    direction = 1
+    -- Подготовка персонажа
+    setPlatformMode(true)
 
-    -- Отключаем управление персонажем
-    local char = Player.Character
-    if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then
-            hum.PlatformStand = true
-            hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-            hum:SetStateEnabled(Enum.HumanoidStateType.Running, false)
-        end
-    end
-
-    task.spawn(farmLoop)
+    -- Запускаем цикл в отдельном потоке
+    task.spawn(farmCycle)
 end
 
 local function stopFarm()
     if not isRunning then return end
     isRunning = false
     stopRequested = true
+
     -- Отжимаем клавишу, если зажата
-    VirtualInput:SendKeyEvent(false, 69, false, game)
-    -- Отменяем текущий твин
+    VirtualInput:SendKeyEvent(false, KEY_E, false, game)
+
+    -- Отменяем твин
     if currentTween then
         currentTween:Cancel()
         currentTween = nil
     end
-    -- Отменяем корутину ожидания
+
+    -- Отменяем корутину ожидания (если есть)
     if holdCoroutine then
         task.cancel(holdCoroutine)
         holdCoroutine = nil
     end
-    -- Восстанавливаем управление
-    local char = Player.Character
-    if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then
-            hum.PlatformStand = false
-            hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-            hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-        end
-    end
+
+    -- Возвращаем управление персонажу
+    setPlatformMode(false)
 end
 
--- =============================================
---  GUI
--- =============================================
+-- ------------------------------------------------------------
+--  GUI (как просили – без изменений)
+-- ------------------------------------------------------------
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "CoolFarmGui"
 screenGui.ResetOnSpawn = false
