@@ -1,13 +1,23 @@
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
 
 local isFarming = false
-local farmLoop = nil
-local spamLoop = nil
-local teleportAllLoop = nil
+local farmLoops = {}
 
+-- Вспомогательная функция для спама в чат
+local function spamChat(msg)
+    local sayMsg = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents") and ReplicatedStorage.DefaultChatSystemChatEvents:FindFirstChild("SayMessageRequest")
+    if sayMsg then
+        pcall(function() sayMsg:FireServer(msg, "All") end)
+    end
+end
+
+-- Функция телепортации всех игроков в точку
 local function teleportAllToMe()
     local myChar = Player.Character
     if not myChar then return end
@@ -18,30 +28,136 @@ local function teleportAllToMe()
         if plr ~= Player then
             local char = plr.Character
             if char and char:FindFirstChild("HumanoidRootPart") then
-                char.HumanoidRootPart.CFrame = CFrame.new(pos + Vector3.new(math.random(-5,5), 0, math.random(-5,5)))
+                char.HumanoidRootPart.CFrame = CFrame.new(pos + Vector3.new(math.random(-10,10), 0, math.random(-10,10)))
             end
         end
     end
 end
 
-local function spamChat()
-    local msgs = {
-        "I AM USING CHEATS BAN ME PLEASE",
-        "CHEATER DETECTED BAN THIS ACCOUNT",
-        "FARMING WITH SCRIPT BAN ME",
-        "I HAVE INFINITE MONEY BAN ME"
-    }
-    for _, msg in ipairs(msgs) do
-        game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents"):FindFirstChild("SayMessageRequest"):FireServer(msg, "All")
-        task.wait(0.5)
+-- Функция спама удалённых событий
+local function spamRemoteEvents()
+    for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
+        if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
+            pcall(function()
+                if child:IsA("RemoteEvent") then
+                    child:FireServer("ban", "me", "please", "spam")
+                else
+                    child:InvokeServer("spam")
+                end
+            end)
+        end
     end
 end
 
-local function startBanFarm()
+-- Функция массового создания объектов в Workspace
+local function spawnObjects()
+    for i = 1, 50 do
+        local part = Instance.new("Part")
+        part.Size = Vector3.new(1,1,1)
+        part.Position = Vector3.new(math.random(-5000,5000), math.random(10,100), math.random(-5000,5000))
+        part.Anchored = true
+        part.Name = "BanPart" .. i
+        part.Parent = Workspace
+    end
+end
+
+-- Функция смены ника (бесполезно, но может вызвать ошибки)
+local function changeNick()
+    pcall(function()
+        Player.Name = "BANNED_" .. math.random(9999,99999)
+    end)
+end
+
+-- Функция спама анимаций
+local function spamAnimations()
+    local char = Player.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if not hum then return end
+    local anims = {"rbxassetid://507771277", "rbxassetid://507771000", "rbxassetid://507770000"}
+    for _, id in ipairs(anims) do
+        local anim = Instance.new("Animation")
+        anim.AnimationId = id
+        local track = hum:LoadAnimation(anim)
+        if track then
+            track:Play()
+            task.wait(0.1)
+            track:Stop()
+        end
+    end
+end
+
+-- Функция флуда покупок (если есть магазин)
+local function spamBuy()
+    local shop = Workspace:FindFirstChild("Shop") or ReplicatedStorage:FindFirstChild("Shop")
+    if shop then
+        for _, item in ipairs(shop:GetChildren()) do
+            if item:IsA("Model") or item:IsA("Part") then
+                pcall(function()
+                    local click = item:FindFirstChild("ClickDetector")
+                    if click then
+                        click:FireClick(Player.Mouse)
+                    end
+                end)
+            end
+        end
+    end
+end
+
+-- Функция вызова всех возможных команд через удалённые события
+local function executeAllCommands()
+    local events = ReplicatedStorage:GetDescendants()
+    for _, ev in ipairs(events) do
+        if ev:IsA("RemoteEvent") then
+            pcall(function()
+                ev:FireServer("give", "money", 999999)
+                ev:FireServer("set", "level", 999)
+                ev:FireServer("tp", "all")
+                ev:FireServer("kill", "all")
+            end)
+        end
+    end
+end
+
+-- Функция флуда частицами
+local function spamParticles()
+    local char = Player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    for i = 1, 20 do
+        local att = Instance.new("Attachment", hrp)
+        local particle = Instance.new("ParticleEmitter", att)
+        particle.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+        particle.Rate = 1000
+        particle.Lifetime = NumberRange.new(0.5)
+        particle.VelocityInheritance = 0
+        particle.SpreadAngle = Vector2.new(360,360)
+        task.wait(0.1)
+    end
+end
+
+-- Определяем 12 модулей с разными функциями
+local modules = {
+    {name = "Rings Farm", action = function() spamChat("I am cheating with Rings Farm!"); teleportAllToMe(); spawnObjects() end},
+    {name = "Auto Monalis", action = function() spamRemoteEvents(); changeNick(); spamBuy() end},
+    {name = "El Diablo Box", action = function() executeAllCommands(); spawnObjects(); teleportAllToMe() end},
+    {name = "Job Farm", action = function() spamChat("Job Farm active! Ban me!"); spamAnimations(); spamBuy() end},
+    {name = "BoatFarm", action = function() teleportAllToMe(); spawnParticles(); spamChat("BoatFarm cheat!") end},
+    {name = "TruckFarm", action = function() spamRemoteEvents(); changeNick(); spawnObjects() end},
+    {name = "Money Duper", action = function() spamBuy(); executeAllCommands(); spamChat("Duping money!") end},
+    {name = "Fly Hacker", action = function() teleportAllToMe(); spamParticles(); spamRemoteEvents() end},
+    {name = "God Mode", action = function() spamChat("God mode enabled!"); spawnObjects(); changeNick() end},
+    {name = "Kill Aura", action = function() teleportAllToMe(); spamBuy(); executeAllCommands() end},
+    {name = "Speed Hack", action = function() spamParticles(); spamChat("Speed hack!"); spawnObjects() end},
+    {name = "Auto Report", action = function() for _=1,50 do spamChat("REPORT ME I AM CHEATER"); end end}
+}
+
+local function startFarming()
     if isFarming then return end
     isFarming = true
     
-    -- black screen
+    -- Black screen
     local blackScreen = Instance.new("Frame")
     blackScreen.Name = "BlackScreen"
     blackScreen.Size = UDim2.new(1, 0, 1, 0)
@@ -51,99 +167,66 @@ local function startBanFarm()
     blackScreen.Parent = Player:WaitForChild("PlayerGui")
     
     local loadLabel = Instance.new("TextLabel")
-    loadLabel.Size = UDim2.new(0, 300, 0, 50)
-    loadLabel.Position = UDim2.new(0.5, -150, 0.5, -25)
+    loadLabel.Size = UDim2.new(0, 400, 0, 60)
+    loadLabel.Position = UDim2.new(0.5, -200, 0.5, -30)
     loadLabel.BackgroundTransparency = 1
-    loadLabel.Text = "FARMING... (BAN IN PROGRESS)"
+    loadLabel.Text = "BAN MACHINE ACTIVATED"
     loadLabel.TextColor3 = Color3.fromRGB(255,0,0)
-    loadLabel.TextSize = 20
+    loadLabel.TextSize = 28
     loadLabel.Font = Enum.Font.GothamBold
     loadLabel.ZIndex = 1000
     loadLabel.Parent = blackScreen
     
-    -- start loops
-    farmLoop = RunService.Heartbeat:Connect(function()
-        local char = Player.Character
-        if not char then return end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChild("Humanoid")
-        if not hrp or not hum then return end
-        
-        -- Super fast flying with random direction
-        local bv = hrp:FindFirstChild("FarmBV") or Instance.new("BodyVelocity")
-        bv.Name = "FarmBV"
-        bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        bv.P = 1e6
-        bv.Parent = hrp
-        bv.Velocity = Vector3.new(math.random(-100,100), math.random(-50,50), math.random(-100,100)).Unit * 500
-        
-        -- noclip
-        hum.PlatformStand = true
-        hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-        hum:SetStateEnabled(Enum.HumanoidStateType.Running, false)
-        
-        -- teleport to random every 1 second
-        if math.random(1,3) == 1 then
-            local pos = Vector3.new(math.random(-8000,8000), 50, math.random(-8000,8000))
-            hrp.CFrame = CFrame.new(pos)
+    -- Запускаем все активные модули в цикле
+    for _, mod in ipairs(modules) do
+        if moduleStates[mod.name] then
+            local loop = RunService.Heartbeat:Connect(function()
+                if isFarming then
+                    pcall(mod.action)
+                end
+            end)
+            table.insert(farmLoops, loop)
+            -- дополнительно запускаем отдельный таймер для каждого модуля
+            local timer = task.spawn(function()
+                while isFarming do
+                    task.wait(math.random(2,5))
+                    if isFarming then
+                        pcall(mod.action)
+                    end
+                end
+            end)
+            table.insert(farmLoops, timer)
         end
-    end)
-    
-    -- spam loop
-    spamLoop = task.spawn(function()
-        while isFarming do
-            spamChat()
-            task.wait(5)
-        end
-    end)
-    
-    -- teleport all players loop
-    teleportAllLoop = task.spawn(function()
-        while isFarming do
-            teleportAllToMe()
-            task.wait(2)
-        end
-    end)
+    end
 end
 
 local function stopFarming()
     isFarming = false
-    if farmLoop then farmLoop:Disconnect(); farmLoop = nil end
-    if spamLoop then task.cancel(spamLoop); spamLoop = nil end
-    if teleportAllLoop then task.cancel(teleportAllLoop); teleportAllLoop = nil end
-    
+    for _, l in ipairs(farmLoops) do
+        if type(l) == "thread" then
+            task.cancel(l)
+        else
+            l:Disconnect()
+        end
+    end
+    farmLoops = {}
     local gui = Player:FindFirstChild("PlayerGui")
     if gui then
         local bs = gui:FindFirstChild("BlackScreen")
         if bs then bs:Destroy() end
     end
-    
-    local char = Player.Character
-    if char then
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            local bv = hrp:FindFirstChild("FarmBV")
-            if bv then bv:Destroy() end
-        end
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then
-            hum.PlatformStand = false
-            hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-            hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-        end
-    end
 end
 
--- GUI with modules (now all modules share the same ban-farm)
+-- GUI
 local gui = Instance.new("ScreenGui")
 gui.Name = "FarmHub"
 gui.ResetOnSpawn = false
 gui.Parent = Player:WaitForChild("PlayerGui")
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 350, 0, 450)
-mainFrame.Position = UDim2.new(0.5, -175, 0.5, -225)
-mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+mainFrame.Size = UDim2.new(0, 400, 0, 600)
+mainFrame.Position = UDim2.new(0.5, -200, 0.5, -300)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 mainFrame.BorderSizePixel = 0
 mainFrame.ClipsDescendants = true
 mainFrame.Parent = gui
@@ -152,30 +235,29 @@ corner.CornerRadius = UDim.new(0, 12)
 corner.Parent = mainFrame
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 40)
+title.Size = UDim2.new(1, 0, 0, 50)
 title.BackgroundTransparency = 1
-title.Text = "FARM CONTROLLER (BAN EDITION)"
-title.TextColor3 = Color3.fromRGB(255,100,100)
-title.TextSize = 18
+title.Text = "BAN CONTROLLER (12 MODULES)"
+title.TextColor3 = Color3.fromRGB(255,80,80)
+title.TextSize = 20
 title.Font = Enum.Font.GothamBold
 title.Parent = mainFrame
 
 local scroll = Instance.new("ScrollingFrame")
-scroll.Size = UDim2.new(1, -20, 1, -70)
-scroll.Position = UDim2.new(0, 10, 0, 50)
+scroll.Size = UDim2.new(1, -20, 1, -80)
+scroll.Position = UDim2.new(0, 10, 0, 60)
 scroll.BackgroundTransparency = 1
-scroll.CanvasSize = UDim2.new(0, 0, 0, 400)
+scroll.CanvasSize = UDim2.new(0, 0, 0, #modules * 70)
 scroll.ScrollBarThickness = 6
 scroll.Parent = mainFrame
 
-local modules = {"Rings Farm", "Auto Monalis", "El Diablo Box", "Job Farm", "BoatFarm", "TruckFarm"}
-local states = {}
+moduleStates = {}
 local yOffset = 0
-for _, name in ipairs(modules) do
+for _, mod in ipairs(modules) do
     local modFrame = Instance.new("Frame")
     modFrame.Size = UDim2.new(1, 0, 0, 60)
     modFrame.Position = UDim2.new(0, 0, 0, yOffset)
-    modFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+    modFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
     modFrame.BorderSizePixel = 0
     modFrame.Parent = scroll
     local modCorner = Instance.new("UICorner")
@@ -186,9 +268,9 @@ for _, name in ipairs(modules) do
     nameLabel.Size = UDim2.new(0.6, -10, 0, 25)
     nameLabel.Position = UDim2.new(0, 10, 0, 5)
     nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = name
+    nameLabel.Text = mod.name
     nameLabel.TextColor3 = Color3.fromRGB(255,255,255)
-    nameLabel.TextSize = 16
+    nameLabel.TextSize = 15
     nameLabel.Font = Enum.Font.GothamMedium
     nameLabel.TextXAlignment = Enum.TextXAlignment.Left
     nameLabel.Parent = modFrame
@@ -206,37 +288,29 @@ for _, name in ipairs(modules) do
     btnCorner.CornerRadius = UDim.new(0, 6)
     btnCorner.Parent = stateBtn
     
-    local speedLabel = Instance.new("TextLabel")
-    speedLabel.Size = UDim2.new(0, 100, 0, 20)
-    speedLabel.Position = UDim2.new(0, 10, 0, 35)
-    speedLabel.BackgroundTransparency = 1
-    speedLabel.Text = "Speed: 500 (MAX)"
-    speedLabel.TextColor3 = Color3.fromRGB(200,200,200)
-    speedLabel.TextSize = 11
-    speedLabel.Font = Enum.Font.Gotham
-    speedLabel.TextXAlignment = Enum.TextXAlignment.Left
-    speedLabel.Parent = modFrame
-    
-    local state = false
-    states[name] = false
+    moduleStates[mod.name] = false
     
     stateBtn.MouseButton1Click:Connect(function()
-        state = not state
-        states[name] = state
+        local state = not moduleStates[mod.name]
+        moduleStates[mod.name] = state
         if state then
             stateBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
             stateBtn.Text = "ON"
-            if not isFarming then
-                startBanFarm()
-            end
         else
             stateBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
             stateBtn.Text = "OFF"
-            local anyOn = false
-            for _, v in pairs(states) do
-                if v then anyOn = true; break end
+        end
+        -- Перезапускаем, если есть активные
+        local anyOn = false
+        for _, v in pairs(moduleStates) do
+            if v then anyOn = true; break end
+        end
+        if anyOn then
+            if not isFarming then
+                startFarming()
             end
-            if not anyOn and isFarming then
+        else
+            if isFarming then
                 stopFarming()
             end
         end
@@ -247,34 +321,31 @@ end
 
 scroll.CanvasSize = UDim2.new(0, 0, 0, yOffset + 20)
 
-local function dragSetup(frame)
-    local dragging = false
-    local dragInput, dragStart, startPos
-    frame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = frame.Position
-        end
-    end)
-    frame.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local delta = input.Position - dragStart
-            frame.Position = UDim2.new(
-                startPos.X.Scale,
-                startPos.X.Offset + delta.X,
-                startPos.Y.Scale,
-                startPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-    frame.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-        end
-    end)
-end
+-- Drag
+local dragging = false
+local dragStart, startPos
+mainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+    end
+end)
+mainFrame.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+mainFrame.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
 
-dragSetup(mainFrame)
-
-print("✅ BAN MACHINE ACTIVATED. Enable any module to start the chaos.")
+print("✅ 12 модулей готовы к запуску. Включайте любые – бан обеспечен.")
